@@ -20,3 +20,22 @@ electron_1.contextBridge.exposeInMainWorld('nodevm', {
     setupProfile: () => electron_1.ipcRenderer.invoke('nvm:setup-profile'),
     checkProfile: () => electron_1.ipcRenderer.invoke('nvm:check-profile'),
 });
+electron_1.contextBridge.exposeInMainWorld('jdkvm', {
+    listInstalled: () => electron_1.ipcRenderer.invoke('jvm:list-installed'),
+    listRemote: () => electron_1.ipcRenderer.invoke('jvm:list-remote'),
+    getCurrent: () => electron_1.ipcRenderer.invoke('jvm:current'),
+    use: (version) => electron_1.ipcRenderer.invoke('jvm:use', version),
+    install: (version) => electron_1.ipcRenderer.invoke('jvm:install', version),
+    uninstall: (version) => electron_1.ipcRenderer.invoke('jvm:uninstall', version),
+    openInstallDir: () => electron_1.ipcRenderer.invoke('jvm:open-install-dir'),
+    onInstallProgress: (cb) => {
+        electron_1.ipcRenderer.on('jvm:install-progress', (_e, data) => cb(data));
+    },
+    removeInstallProgressListener: () => {
+        electron_1.ipcRenderer.removeAllListeners('jvm:install-progress');
+    },
+    setupEnv: () => electron_1.ipcRenderer.invoke('jvm:setup-env'),
+    checkEnv: () => electron_1.ipcRenderer.invoke('jvm:check-env'),
+    setupProfile: () => electron_1.ipcRenderer.invoke('jvm:setup-profile'),
+    checkProfile: () => electron_1.ipcRenderer.invoke('jvm:check-profile'),
+});

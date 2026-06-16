@@ -12,6 +12,8 @@ export interface InstalledVersion {
   version: string
   isCurrent: boolean
   path: string
+  /** true for Node installs already on the machine (not installed by this app) — read-only */
+  external?: boolean
 }
 
 export interface RemoteVersion {
@@ -31,10 +33,19 @@ export class NodeManager {
   }
 
   listInstalled(): InstalledVersion[] {
-    if (!fs.existsSync(this.versionsDir)) return []
     const current = this.getCurrent()
-    return fs
-      .readdirSync(this.versionsDir)
+    const byVersionDesc = (a: InstalledVersion, b: InstalledVersion) => {
+      const pa = a.version.replace('v', '').split('.').map(Number)
+      const pb = b.version.replace('v', '').split('.').map(Number)
+      for (let i = 0; i < 3; i++) {
+        if ((pa[i] || 0) !== (pb[i] || 0)) return (pb[i] || 0) - (pa[i] || 0)
+      }
+      return 0
+    }
+
+    const managed: InstalledVersion[] = (
+      fs.existsSync(this.versionsDir) ? fs.readdirSync(this.versionsDir) : []
+    )
       .filter((d) => {
         if (!d.startsWith('v')) return false
         const dir = path.join(this.versionsDir, d)
@@ -47,15 +58,58 @@ export class NodeManager {
         version,
         isCurrent: version === current,
         path: path.join(this.versionsDir, version),
+        external: false,
       }))
-      .sort((a, b) => {
-        const pa = a.version.replace('v', '').split('.').map(Number)
-        const pb = b.version.replace('v', '').split('.').map(Number)
-        for (let i = 0; i < 3; i++) {
-          if ((pa[i] || 0) !== (pb[i] || 0)) return (pb[i] || 0) - (pa[i] || 0)
+      .sort(byVersionDesc)
+
+    const managedPaths = new Set(managed.map((m) => m.path.toLowerCase()))
+    const external = this._discoverExternal(managedPaths).sort(byVersionDesc)
+
+    return [...managed, ...external]
+  }
+
+  /** Find Node installs already on the machine (read-only) */
+  private _discoverExternal(managedPaths: Set<string>): InstalledVersion[] {
+    const found = new Map<string, InstalledVersion>()
+
+    const add = (dir: string | undefined) => {
+      if (!dir) return
+      try {
+        const norm = path.normalize(dir).replace(/[\\/]+$/, '')
+        const lower = norm.toLowerCase()
+        if (found.has(lower) || managedPaths.has(lower)) return
+        if (lower.includes('\\.nodevm\\')) return // our own managed/junction tree
+        const exe = path.join(norm, 'node.exe')
+        if (!fs.existsSync(exe)) return
+        let version = ''
+        try {
+          version = execSync(`"${exe}" --version`, { encoding: 'utf8' }).trim()
+        } catch {
+          // fall back to folder name if the binary won't run
         }
-        return 0
-      })
+        if (!version) version = path.basename(norm)
+        found.set(lower, { version, isCurrent: false, path: norm, external: true })
+      } catch {
+        // ignore unreadable candidate
+      }
+    }
+
+    const pf = process.env['ProgramFiles'] || 'C:\\Program Files'
+    const pfx86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)'
+    add(path.join(pf, 'nodejs'))
+    add(path.join(pfx86, 'nodejs'))
+
+    try {
+      const out = execSync('where node 2>nul', { shell: 'cmd.exe', encoding: 'utf8' })
+      for (const line of out.split(/\r?\n/)) {
+        const p = line.trim()
+        if (/node\.exe$/i.test(p)) add(path.dirname(p))
+      }
+    } catch {
+      // node not on PATH
+    }
+
+    return Array.from(found.values())
   }
 
   getCurrent(): string | null {

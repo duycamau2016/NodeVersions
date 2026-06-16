@@ -1,9 +1,11 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import path from 'path'
 import { NodeManager } from './nodeManager'
+import { JdkManager } from './jdkManager'
 
 let win: BrowserWindow | null = null
 const nodeManager = new NodeManager()
+const jdkManager = new JdkManager()
 
 function createWindow() {
   win = new BrowserWindow({
@@ -64,3 +66,33 @@ ipcMain.handle('nvm:check-path', () => nodeManager.isPathConfigured())
 ipcMain.handle('nvm:setup-profile', () => nodeManager.setupProfile())
 
 ipcMain.handle('nvm:check-profile', () => nodeManager.isProfileConfigured())
+
+// ── JDK (Java) IPC handlers ───────────────────────────────────
+
+ipcMain.handle('jvm:list-installed', () => jdkManager.listInstalled())
+
+ipcMain.handle('jvm:list-remote', () => jdkManager.listRemote())
+
+ipcMain.handle('jvm:current', () => jdkManager.getCurrent())
+
+ipcMain.handle('jvm:use', (_e, version: string) => jdkManager.use(version))
+
+ipcMain.handle('jvm:install', (_e, version: string) => {
+  return jdkManager.install(version, (progress) => {
+    win?.webContents.send('jvm:install-progress', { version, progress })
+  })
+})
+
+ipcMain.handle('jvm:uninstall', (_e, version: string) => jdkManager.uninstall(version))
+
+ipcMain.handle('jvm:open-install-dir', () => {
+  shell.openPath(jdkManager.versionsDir)
+})
+
+ipcMain.handle('jvm:setup-env', () => jdkManager.setupEnv())
+
+ipcMain.handle('jvm:check-env', () => jdkManager.isEnvConfigured())
+
+ipcMain.handle('jvm:setup-profile', () => jdkManager.setupProfile())
+
+ipcMain.handle('jvm:check-profile', () => jdkManager.isProfileConfigured())

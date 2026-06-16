@@ -64,6 +64,39 @@ body {
   margin-left: 4px;
 }
 
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+/* ── Tool switch (Node | Java) ─────────────────────────────── */
+.tool-switch {
+  display: flex;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 99px;
+  padding: 2px;
+}
+
+.tool-btn {
+  padding: 4px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 99px;
+  transition: all 0.15s;
+}
+
+.tool-btn:hover { color: var(--text); }
+.tool-btn.active {
+  background: var(--accent);
+  color: #052e16;
+}
+
 .tabs {
   display: flex;
   gap: 2px;
@@ -134,6 +167,7 @@ body {
 }
 
 .version-badge.lts { background: #1e3a5f; color: #60a5fa; }
+.version-badge.system { background: #3a2f1e; color: var(--warning); }
 
 .version-meta {
   font-size: 11px;

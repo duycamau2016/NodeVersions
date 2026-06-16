@@ -2,22 +2,37 @@ import { useState, useEffect, useCallback } from 'react'
 import { InstalledTab } from './components/InstalledTab'
 import { InstallTab } from './components/InstallTab'
 import { SettingsTab } from './components/SettingsTab'
+import { JdkSettingsTab } from './components/JdkSettingsTab'
 import { ToastContainer, type Toast } from './components/Toast'
 
+type Tool = 'node' | 'java'
+type Tab = 'installed' | 'install' | 'settings'
+
+const TOOLS: Record<Tool, { title: string; noun: string; source: string }> = {
+  node: { title: '⬡ Node Version Manager', noun: 'Node', source: 'nodejs.org' },
+  java: { title: '☕ JDK Version Manager', noun: 'JDK', source: 'Adoptium' },
+}
+
 export default function App() {
-  const [tab, setTab] = useState<'installed' | 'install' | 'settings'>('installed')
+  const [tool, setTool] = useState<Tool>('node')
+  const [tab, setTab] = useState<Tab>('installed')
   const [current, setCurrent] = useState<string | null>(null)
   const [toasts, setToasts] = useState<Toast[]>([])
   const [refreshKey, setRefreshKey] = useState(0)
 
+  const api = tool === 'node' ? window.nodevm : window.jdkvm
+  const meta = TOOLS[tool]
+
   const refresh = useCallback(() => {
     setRefreshKey((k) => k + 1)
-    window.nodevm.getCurrent().then(setCurrent)
-  }, [])
+    api.getCurrent().then(setCurrent)
+  }, [api])
 
+  // Re-read the active version whenever the selected tool changes
   useEffect(() => {
-    window.nodevm.getCurrent().then(setCurrent)
-  }, [])
+    setCurrent(null)
+    api.getCurrent().then(setCurrent)
+  }, [api])
 
   const addToast = useCallback((message: string, type: 'success' | 'error') => {
     const id = Date.now()
@@ -28,10 +43,25 @@ export default function App() {
   return (
     <div className="app">
       <header className="header">
-        <h1>⬡ Node Version Manager</h1>
-        <div className="header-current">
-          Active:{' '}
-          <span>{current ?? 'none'}</span>
+        <h1>{meta.title}</h1>
+        <div className="header-right">
+          <div className="tool-switch">
+            <button
+              className={`tool-btn ${tool === 'node' ? 'active' : ''}`}
+              onClick={() => setTool('node')}
+            >
+              Node
+            </button>
+            <button
+              className={`tool-btn ${tool === 'java' ? 'active' : ''}`}
+              onClick={() => setTool('java')}
+            >
+              Java
+            </button>
+          </div>
+          <div className="header-current">
+            Active: <span>{current ?? 'none'}</span>
+          </div>
         </div>
       </header>
 
@@ -49,10 +79,19 @@ export default function App() {
 
       <main className="content">
         {tab === 'installed' && (
-          <InstalledTab refreshKey={refreshKey} currentVersion={current} onRefresh={refresh} addToast={addToast} />
+          <InstalledTab
+            key={tool}
+            api={api}
+            noun={meta.noun}
+            refreshKey={refreshKey}
+            onRefresh={refresh}
+            addToast={addToast}
+          />
         )}
-        {tab === 'install' && <InstallTab onInstalled={refresh} addToast={addToast} />}
-        {tab === 'settings' && <SettingsTab />}
+        {tab === 'install' && (
+          <InstallTab key={tool} api={api} sourceLabel={meta.source} onInstalled={refresh} addToast={addToast} />
+        )}
+        {tab === 'settings' && (tool === 'node' ? <SettingsTab /> : <JdkSettingsTab />)}
       </main>
 
       <ToastContainer toasts={toasts} />

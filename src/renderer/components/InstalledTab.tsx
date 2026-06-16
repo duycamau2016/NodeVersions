@@ -1,29 +1,30 @@
 import { useEffect, useState } from 'react'
-import type { InstalledVersion } from '../types'
+import type { InstalledVersion, VmApi } from '../types'
 
 interface Props {
+  api: VmApi
+  noun: string
   refreshKey: number
-  currentVersion: string | null
   onRefresh: () => void
   addToast: (msg: string, type: 'success' | 'error') => void
 }
 
-export function InstalledTab({ refreshKey, currentVersion, onRefresh, addToast }: Props) {
+export function InstalledTab({ api, noun, refreshKey, onRefresh, addToast }: Props) {
   const [versions, setVersions] = useState<InstalledVersion[]>([])
   const [loading, setLoading] = useState(true)
   const [busyVersion, setBusyVersion] = useState<string | null>(null)
 
   useEffect(() => {
     setLoading(true)
-    window.nodevm.listInstalled().then((list) => {
+    api.listInstalled().then((list) => {
       setVersions(list)
       setLoading(false)
     })
-  }, [refreshKey])
+  }, [api, refreshKey])
 
   const handleUse = async (version: string) => {
     setBusyVersion(version)
-    const res = await window.nodevm.use(version)
+    const res = await api.use(version)
     setBusyVersion(null)
     if (res.success) {
       addToast(`Switched to ${version}. Restart your terminal to apply.`, 'success')
@@ -34,9 +35,9 @@ export function InstalledTab({ refreshKey, currentVersion, onRefresh, addToast }
   }
 
   const handleUninstall = async (version: string) => {
-    if (!confirm(`Uninstall Node ${version}?`)) return
+    if (!confirm(`Uninstall ${noun} ${version}?`)) return
     setBusyVersion(version)
-    const res = await window.nodevm.uninstall(version)
+    const res = await api.uninstall(version)
     setBusyVersion(null)
     if (res.success) {
       addToast(`${version} uninstalled`, 'success')
@@ -67,29 +68,39 @@ export function InstalledTab({ refreshKey, currentVersion, onRefresh, addToast }
   return (
     <div className="version-list">
       {versions.map((v) => (
-        <div key={v.version} className={`version-card ${v.isCurrent ? 'current' : ''}`}>
+        <div key={v.path} className={`version-card ${v.isCurrent ? 'current' : ''}`}>
           <div className="version-info">
             <div className="version-name">{v.version}</div>
             {v.isCurrent && <div className="version-badge">● active</div>}
+            {v.external && <div className="version-badge system">system</div>}
+            {v.external && <div className="version-meta">{v.path}</div>}
           </div>
           <div className="version-actions">
-            {!v.isCurrent && (
-              <button
-                className="btn btn-primary"
-                disabled={busyVersion === v.version}
-                onClick={() => handleUse(v.version)}
-              >
-                {busyVersion === v.version ? 'Switching…' : 'Use'}
-              </button>
-            )}
-            {!v.isCurrent && (
-              <button
-                className="btn btn-danger"
-                disabled={busyVersion === v.version}
-                onClick={() => handleUninstall(v.version)}
-              >
-                Uninstall
-              </button>
+            {v.external ? (
+              <span className="version-meta" title="Detected on this machine — managed elsewhere">
+                read-only
+              </span>
+            ) : (
+              <>
+                {!v.isCurrent && (
+                  <button
+                    className="btn btn-primary"
+                    disabled={busyVersion === v.version}
+                    onClick={() => handleUse(v.version)}
+                  >
+                    {busyVersion === v.version ? 'Switching…' : 'Use'}
+                  </button>
+                )}
+                {!v.isCurrent && (
+                  <button
+                    className="btn btn-danger"
+                    disabled={busyVersion === v.version}
+                    onClick={() => handleUninstall(v.version)}
+                  >
+                    Uninstall
+                  </button>
+                )}
+              </>
             )}
           </div>
         </div>

@@ -18,11 +18,17 @@ class NodeManager {
         fs_1.default.mkdirSync(this.versionsDir, { recursive: true });
     }
     listInstalled() {
-        if (!fs_1.default.existsSync(this.versionsDir))
-            return [];
         const current = this.getCurrent();
-        return fs_1.default
-            .readdirSync(this.versionsDir)
+        const byVersionDesc = (a, b) => {
+            const pa = a.version.replace('v', '').split('.').map(Number);
+            const pb = b.version.replace('v', '').split('.').map(Number);
+            for (let i = 0; i < 3; i++) {
+                if ((pa[i] || 0) !== (pb[i] || 0))
+                    return (pb[i] || 0) - (pa[i] || 0);
+            }
+            return 0;
+        };
+        const managed = (fs_1.default.existsSync(this.versionsDir) ? fs_1.default.readdirSync(this.versionsDir) : [])
             .filter((d) => {
             if (!d.startsWith('v'))
                 return false;
@@ -34,16 +40,60 @@ class NodeManager {
             version,
             isCurrent: version === current,
             path: path_1.default.join(this.versionsDir, version),
+            external: false,
         }))
-            .sort((a, b) => {
-            const pa = a.version.replace('v', '').split('.').map(Number);
-            const pb = b.version.replace('v', '').split('.').map(Number);
-            for (let i = 0; i < 3; i++) {
-                if ((pa[i] || 0) !== (pb[i] || 0))
-                    return (pb[i] || 0) - (pa[i] || 0);
+            .sort(byVersionDesc);
+        const managedPaths = new Set(managed.map((m) => m.path.toLowerCase()));
+        const external = this._discoverExternal(managedPaths).sort(byVersionDesc);
+        return [...managed, ...external];
+    }
+    /** Find Node installs already on the machine (read-only) */
+    _discoverExternal(managedPaths) {
+        const found = new Map();
+        const add = (dir) => {
+            if (!dir)
+                return;
+            try {
+                const norm = path_1.default.normalize(dir).replace(/[\\/]+$/, '');
+                const lower = norm.toLowerCase();
+                if (found.has(lower) || managedPaths.has(lower))
+                    return;
+                if (lower.includes('\\.nodevm\\'))
+                    return; // our own managed/junction tree
+                const exe = path_1.default.join(norm, 'node.exe');
+                if (!fs_1.default.existsSync(exe))
+                    return;
+                let version = '';
+                try {
+                    version = (0, child_process_1.execSync)(`"${exe}" --version`, { encoding: 'utf8' }).trim();
+                }
+                catch {
+                    // fall back to folder name if the binary won't run
+                }
+                if (!version)
+                    version = path_1.default.basename(norm);
+                found.set(lower, { version, isCurrent: false, path: norm, external: true });
             }
-            return 0;
-        });
+            catch {
+                // ignore unreadable candidate
+            }
+        };
+        const pf = process.env['ProgramFiles'] || 'C:\\Program Files';
+        const pfx86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+        add(path_1.default.join(pf, 'nodejs'));
+        add(path_1.default.join(pfx86, 'nodejs'));
+        try {
+            const out = (0, child_process_1.execSync)('where node 2>nul', { shell: 'cmd.exe', encoding: 'utf8' });
+            for (const line of out.split(/\r?\n/)) {
+                const p = line.trim();
+                if (/node\.exe$/i.test(p))
+                    add(path_1.default.dirname(p));
+            }
+        }
+        catch {
+            // node not on PATH
+        }
+        return Array.from(found.values());
     }
     getCurrent() {
         try {

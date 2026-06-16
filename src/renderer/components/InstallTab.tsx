@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
-import type { RemoteVersion, InstalledVersion } from '../types'
+import type { RemoteVersion, InstalledVersion, VmApi } from '../types'
 
 interface Props {
+  api: VmApi
+  sourceLabel: string
   onInstalled: () => void
   addToast: (msg: string, type: 'success' | 'error') => void
 }
 
-export function InstallTab({ onInstalled, addToast }: Props) {
+export function InstallTab({ api, sourceLabel, onInstalled, addToast }: Props) {
   const [remote, setRemote] = useState<RemoteVersion[]>([])
   const [installed, setInstalled] = useState<InstalledVersion[]>([])
   const [loading, setLoading] = useState(true)
@@ -15,27 +17,27 @@ export function InstallTab({ onInstalled, addToast }: Props) {
 
   useEffect(() => {
     setLoading(true)
-    Promise.all([window.nodevm.listRemote(), window.nodevm.listInstalled()]).then(([r, i]) => {
+    Promise.all([api.listRemote(), api.listInstalled()]).then(([r, i]) => {
       setRemote(r)
       setInstalled(i)
       setLoading(false)
     })
 
-    window.nodevm.onInstallProgress(({ progress: p }) => setProgress(p))
-    return () => window.nodevm.removeInstallProgressListener()
-  }, [])
+    api.onInstallProgress(({ progress: p }) => setProgress(p))
+    return () => api.removeInstallProgressListener()
+  }, [api])
 
   const isInstalled = (version: string) => installed.some((v) => v.version === version)
 
   const handleInstall = async (version: string) => {
     setInstalling(version)
     setProgress(0)
-    const res = await window.nodevm.install(version)
+    const res = await api.install(version)
     setInstalling(null)
     setProgress(0)
     if (res.success) {
       addToast(`${version} installed successfully!`, 'success')
-      window.nodevm.listInstalled().then(setInstalled)
+      api.listInstalled().then(setInstalled)
       onInstalled()
     } else {
       addToast(res.error ?? `Failed to install ${version}`, 'error')
@@ -46,7 +48,7 @@ export function InstallTab({ onInstalled, addToast }: Props) {
     return (
       <div className="loading">
         <div className="spinner" />
-        Fetching versions from nodejs.org…
+        Fetching versions from {sourceLabel}…
       </div>
     )
   }
