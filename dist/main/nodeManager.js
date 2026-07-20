@@ -18,7 +18,7 @@ class NodeManager {
         fs_1.default.mkdirSync(this.versionsDir, { recursive: true });
     }
     listInstalled() {
-        const current = this.getCurrent();
+        const currentPath = this.getCurrentPath();
         const byVersionDesc = (a, b) => {
             const pa = a.version.replace('v', '').split('.').map(Number);
             const pb = b.version.replace('v', '').split('.').map(Number);
@@ -36,15 +36,20 @@ class NodeManager {
             return (fs_1.default.statSync(dir).isDirectory() &&
                 fs_1.default.existsSync(path_1.default.join(dir, 'node.exe')));
         })
-            .map((version) => ({
-            version,
-            isCurrent: version === current,
-            path: path_1.default.join(this.versionsDir, version),
-            external: false,
-        }))
+            .map((version) => {
+            const dir = path_1.default.join(this.versionsDir, version);
+            return {
+                version,
+                isCurrent: this._isActive(dir, currentPath),
+                path: dir,
+                external: false,
+            };
+        })
             .sort(byVersionDesc);
         const managedPaths = new Set(managed.map((m) => m.path.toLowerCase()));
-        const external = this._discoverExternal(managedPaths).sort(byVersionDesc);
+        const external = this._discoverExternal(managedPaths)
+            .map((e) => ({ ...e, isCurrent: this._isActive(e.path, currentPath) }))
+            .sort(byVersionDesc);
         return [...managed, ...external];
     }
     /** Find Node installs already on the machine (read-only) */
@@ -97,12 +102,31 @@ class NodeManager {
     }
     getCurrent() {
         try {
-            const target = fs_1.default.readlinkSync(this.symlinkPath);
-            return path_1.default.basename(target);
+            // realpathSync resolves the junction and canonicalises casing for display
+            return path_1.default.basename(fs_1.default.realpathSync(this.symlinkPath));
         }
         catch {
             return null;
         }
+    }
+    /** Canonical, lower-cased on-disk path the `current` junction resolves to (null if unset) */
+    getCurrentPath() {
+        return this._realLower(this.symlinkPath);
+    }
+    /** Resolve a path to its canonical lower-cased form, or null if it can't be resolved */
+    _realLower(p) {
+        try {
+            return fs_1.default.realpathSync(p).toLowerCase();
+        }
+        catch {
+            return null;
+        }
+    }
+    /** True when `dir` is the install the `current` junction points at */
+    _isActive(dir, currentPath) {
+        if (currentPath === null)
+            return false;
+        return this._realLower(dir) === currentPath;
     }
     async listRemote() {
         return new Promise((resolve, reject) => {
@@ -171,10 +195,17 @@ class NodeManager {
             return { success: false, error: String(e) };
         }
     }
-    use(version) {
-        const versionDir = path_1.default.join(this.versionsDir, version);
-        if (!fs_1.default.existsSync(versionDir)) {
-            return { success: false, error: `Version ${version} is not installed` };
+    /**
+     * Activate an install. `target` is the install directory — either a managed
+     * version folder name (e.g. "v22.13.0") or an absolute path to a system/external
+     * Node install (e.g. "C:\\Program Files\\nodejs").
+     */
+    use(target) {
+        const versionDir = path_1.default.isAbsolute(target)
+            ? path_1.default.normalize(target)
+            : path_1.default.join(this.versionsDir, target);
+        if (!fs_1.default.existsSync(path_1.default.join(versionDir, 'node.exe'))) {
+            return { success: false, error: `No Node install found at ${versionDir}` };
         }
         try {
             // Remove existing junction without touching its target contents

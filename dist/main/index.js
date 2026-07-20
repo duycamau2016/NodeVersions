@@ -41,7 +41,7 @@ electron_1.app.on('window-all-closed', () => {
 electron_1.ipcMain.handle('nvm:list-installed', () => nodeManager.listInstalled());
 electron_1.ipcMain.handle('nvm:list-remote', () => nodeManager.listRemote());
 electron_1.ipcMain.handle('nvm:current', () => nodeManager.getCurrent());
-electron_1.ipcMain.handle('nvm:use', (_e, version) => nodeManager.use(version));
+electron_1.ipcMain.handle('nvm:use', (_e, target) => nodeManager.use(target));
 electron_1.ipcMain.handle('nvm:install', (_e, version) => {
     // Stream progress via webContents
     return nodeManager.install(version, (progress) => {
@@ -60,7 +60,7 @@ electron_1.ipcMain.handle('nvm:check-profile', () => nodeManager.isProfileConfig
 electron_1.ipcMain.handle('jvm:list-installed', () => jdkManager.listInstalled());
 electron_1.ipcMain.handle('jvm:list-remote', () => jdkManager.listRemote());
 electron_1.ipcMain.handle('jvm:current', () => jdkManager.getCurrent());
-electron_1.ipcMain.handle('jvm:use', (_e, version) => jdkManager.use(version));
+electron_1.ipcMain.handle('jvm:use', (_e, target) => jdkManager.use(target));
 electron_1.ipcMain.handle('jvm:install', (_e, version) => {
     return jdkManager.install(version, (progress) => {
         win?.webContents.send('jvm:install-progress', { version, progress });

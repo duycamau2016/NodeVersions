@@ -34,7 +34,7 @@ export class JdkManager {
   }
 
   listInstalled(): InstalledVersion[] {
-    const current = this.getCurrent()
+    const currentPath = this.getCurrentPath()
     const byVersionDesc = (a: InstalledVersion, b: InstalledVersion) => {
       const pa = this._parseVersion(a.version)
       const pb = this._parseVersion(b.version)
@@ -54,27 +54,52 @@ export class JdkManager {
           fs.existsSync(path.join(dir, 'bin', 'java.exe'))
         )
       })
-      .map((version) => ({
-        version,
-        isCurrent: version === current,
-        path: path.join(this.versionsDir, version),
-        external: false,
-      }))
+      .map((version) => {
+        const dir = path.join(this.versionsDir, version)
+        return {
+          version,
+          isCurrent: this._isActive(dir, currentPath),
+          path: dir,
+          external: false,
+        }
+      })
       .sort(byVersionDesc)
 
     const managedPaths = new Set(managed.map((m) => m.path.toLowerCase()))
-    const external = this._discoverExternal(managedPaths).sort(byVersionDesc)
+    const external = this._discoverExternal(managedPaths)
+      .map((e) => ({ ...e, isCurrent: this._isActive(e.path, currentPath) }))
+      .sort(byVersionDesc)
 
     return [...managed, ...external]
   }
 
   getCurrent(): string | null {
     try {
-      const target = fs.readlinkSync(this.symlinkPath)
-      return path.basename(target)
+      // realpathSync resolves the junction and canonicalises casing for display
+      return path.basename(fs.realpathSync(this.symlinkPath))
     } catch {
       return null
     }
+  }
+
+  /** Canonical, lower-cased on-disk path the `current` junction resolves to (null if unset) */
+  private getCurrentPath(): string | null {
+    return this._realLower(this.symlinkPath)
+  }
+
+  /** Resolve a path to its canonical lower-cased form, or null if it can't be resolved */
+  private _realLower(p: string): string | null {
+    try {
+      return fs.realpathSync(p).toLowerCase()
+    } catch {
+      return null
+    }
+  }
+
+  /** True when `dir` is the JDK the `current` junction points at */
+  private _isActive(dir: string, currentPath: string | null): boolean {
+    if (currentPath === null) return false
+    return this._realLower(dir) === currentPath
   }
 
   async listRemote(): Promise<RemoteVersion[]> {
@@ -171,10 +196,18 @@ export class JdkManager {
     }
   }
 
-  use(version: string): { success: boolean; error?: string } {
-    const versionDir = path.join(this.versionsDir, version)
-    if (!fs.existsSync(versionDir)) {
-      return { success: false, error: `Version ${version} is not installed` }
+  /**
+   * Activate a JDK. `target` is the JDK home directory — either a managed
+   * version folder name (e.g. "jdk-21.0.11+10") or an absolute path to a
+   * system/external JDK (e.g. "C:\\Program Files\\Java\\jdk-21").
+   */
+  use(target: string): { success: boolean; error?: string } {
+    const versionDir = path.isAbsolute(target)
+      ? path.normalize(target)
+      : path.join(this.versionsDir, target)
+
+    if (!fs.existsSync(path.join(versionDir, 'bin', 'java.exe'))) {
+      return { success: false, error: `No JDK found at ${versionDir}` }
     }
 
     try {

@@ -24,7 +24,8 @@ export interface VmApi {
   listInstalled: () => Promise<InstalledVersion[]>
   listRemote: () => Promise<RemoteVersion[]>
   getCurrent: () => Promise<string | null>
-  use: (version: string) => Promise<ActionResult>
+  /** Activate an install by its directory path (works for managed and system/external installs) */
+  use: (target: string) => Promise<ActionResult>
   install: (version: string) => Promise<ActionResult>
   uninstall: (version: string) => Promise<ActionResult>
   openInstallDir: () => Promise<void>

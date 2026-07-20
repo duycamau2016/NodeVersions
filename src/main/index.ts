@@ -44,7 +44,7 @@ ipcMain.handle('nvm:list-remote', () => nodeManager.listRemote())
 
 ipcMain.handle('nvm:current', () => nodeManager.getCurrent())
 
-ipcMain.handle('nvm:use', (_e, version: string) => nodeManager.use(version))
+ipcMain.handle('nvm:use', (_e, target: string) => nodeManager.use(target))
 
 ipcMain.handle('nvm:install', (_e, version: string) => {
   // Stream progress via webContents
@@ -75,7 +75,7 @@ ipcMain.handle('jvm:list-remote', () => jdkManager.listRemote())
 
 ipcMain.handle('jvm:current', () => jdkManager.getCurrent())
 
-ipcMain.handle('jvm:use', (_e, version: string) => jdkManager.use(version))
+ipcMain.handle('jvm:use', (_e, target: string) => jdkManager.use(target))
 
 ipcMain.handle('jvm:install', (_e, version: string) => {
   return jdkManager.install(version, (progress) => {

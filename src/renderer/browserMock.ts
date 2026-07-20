@@ -34,22 +34,24 @@ const mockJdkRemote: RemoteVersion[] = [
 
 // Builds a mock implementation of the common VM surface backed by mutable arrays.
 function makeMockVm(installed: InstalledVersion[], remote: RemoteVersion[], initialCurrent: string) {
-  let currentVersion = initialCurrent
+  // Track the active install by path so system/external installs work like the real managers
+  let currentPath = installed.find((v) => v.version === initialCurrent)?.path ?? ''
   const progressCallbacks: Array<(data: { version: string; progress: number }) => void> = []
 
   return {
     listInstalled: async (): Promise<InstalledVersion[]> =>
-      installed.map((v) => ({ ...v, isCurrent: v.version === currentVersion })),
+      installed.map((v) => ({ ...v, isCurrent: v.path === currentPath })),
 
     listRemote: async (): Promise<RemoteVersion[]> => {
       await new Promise((r) => setTimeout(r, 800)) // simulate network
       return remote
     },
 
-    getCurrent: async (): Promise<string> => currentVersion,
+    getCurrent: async (): Promise<string | null> =>
+      installed.find((v) => v.path === currentPath)?.version ?? null,
 
-    use: async (version: string): Promise<ActionResult> => {
-      currentVersion = version
+    use: async (target: string): Promise<ActionResult> => {
+      currentPath = target
       return { success: true }
     },
 

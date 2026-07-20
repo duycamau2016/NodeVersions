@@ -33,7 +33,7 @@ export class NodeManager {
   }
 
   listInstalled(): InstalledVersion[] {
-    const current = this.getCurrent()
+    const currentPath = this.getCurrentPath()
     const byVersionDesc = (a: InstalledVersion, b: InstalledVersion) => {
       const pa = a.version.replace('v', '').split('.').map(Number)
       const pb = b.version.replace('v', '').split('.').map(Number)
@@ -54,16 +54,21 @@ export class NodeManager {
           fs.existsSync(path.join(dir, 'node.exe'))
         )
       })
-      .map((version) => ({
-        version,
-        isCurrent: version === current,
-        path: path.join(this.versionsDir, version),
-        external: false,
-      }))
+      .map((version) => {
+        const dir = path.join(this.versionsDir, version)
+        return {
+          version,
+          isCurrent: this._isActive(dir, currentPath),
+          path: dir,
+          external: false,
+        }
+      })
       .sort(byVersionDesc)
 
     const managedPaths = new Set(managed.map((m) => m.path.toLowerCase()))
-    const external = this._discoverExternal(managedPaths).sort(byVersionDesc)
+    const external = this._discoverExternal(managedPaths)
+      .map((e) => ({ ...e, isCurrent: this._isActive(e.path, currentPath) }))
+      .sort(byVersionDesc)
 
     return [...managed, ...external]
   }
@@ -114,11 +119,31 @@ export class NodeManager {
 
   getCurrent(): string | null {
     try {
-      const target = fs.readlinkSync(this.symlinkPath)
-      return path.basename(target)
+      // realpathSync resolves the junction and canonicalises casing for display
+      return path.basename(fs.realpathSync(this.symlinkPath))
     } catch {
       return null
     }
+  }
+
+  /** Canonical, lower-cased on-disk path the `current` junction resolves to (null if unset) */
+  private getCurrentPath(): string | null {
+    return this._realLower(this.symlinkPath)
+  }
+
+  /** Resolve a path to its canonical lower-cased form, or null if it can't be resolved */
+  private _realLower(p: string): string | null {
+    try {
+      return fs.realpathSync(p).toLowerCase()
+    } catch {
+      return null
+    }
+  }
+
+  /** True when `dir` is the install the `current` junction points at */
+  private _isActive(dir: string, currentPath: string | null): boolean {
+    if (currentPath === null) return false
+    return this._realLower(dir) === currentPath
   }
 
   async listRemote(): Promise<RemoteVersion[]> {
@@ -203,10 +228,18 @@ export class NodeManager {
     }
   }
 
-  use(version: string): { success: boolean; error?: string } {
-    const versionDir = path.join(this.versionsDir, version)
-    if (!fs.existsSync(versionDir)) {
-      return { success: false, error: `Version ${version} is not installed` }
+  /**
+   * Activate an install. `target` is the install directory — either a managed
+   * version folder name (e.g. "v22.13.0") or an absolute path to a system/external
+   * Node install (e.g. "C:\\Program Files\\nodejs").
+   */
+  use(target: string): { success: boolean; error?: string } {
+    const versionDir = path.isAbsolute(target)
+      ? path.normalize(target)
+      : path.join(this.versionsDir, target)
+
+    if (!fs.existsSync(path.join(versionDir, 'node.exe'))) {
+      return { success: false, error: `No Node install found at ${versionDir}` }
     }
 
     try {

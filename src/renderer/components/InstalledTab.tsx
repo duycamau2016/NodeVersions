@@ -12,7 +12,7 @@ interface Props {
 export function InstalledTab({ api, noun, refreshKey, onRefresh, addToast }: Props) {
   const [versions, setVersions] = useState<InstalledVersion[]>([])
   const [loading, setLoading] = useState(true)
-  const [busyVersion, setBusyVersion] = useState<string | null>(null)
+  const [busyPath, setBusyPath] = useState<string | null>(null)
 
   useEffect(() => {
     setLoading(true)
@@ -22,23 +22,23 @@ export function InstalledTab({ api, noun, refreshKey, onRefresh, addToast }: Pro
     })
   }, [api, refreshKey])
 
-  const handleUse = async (version: string) => {
-    setBusyVersion(version)
-    const res = await api.use(version)
-    setBusyVersion(null)
+  const handleUse = async (v: InstalledVersion) => {
+    setBusyPath(v.path)
+    const res = await api.use(v.path)
+    setBusyPath(null)
     if (res.success) {
-      addToast(`Switched to ${version}. Restart your terminal to apply.`, 'success')
+      addToast(`Switched to ${v.version}. Restart your terminal to apply.`, 'success')
       onRefresh()
     } else {
       addToast(res.error ?? 'Failed to switch version', 'error')
     }
   }
 
-  const handleUninstall = async (version: string) => {
-    if (!confirm(`Uninstall ${noun} ${version}?`)) return
-    setBusyVersion(version)
-    const res = await api.uninstall(version)
-    setBusyVersion(null)
+  const handleUninstall = async (v: InstalledVersion) => {
+    if (!confirm(`Uninstall ${noun} ${v.version}?`)) return
+    setBusyPath(v.path)
+    const res = await api.uninstall(v.version)
+    setBusyPath(null)
     if (res.success) {
       addToast(`${version} uninstalled`, 'success')
       onRefresh()
@@ -72,35 +72,31 @@ export function InstalledTab({ api, noun, refreshKey, onRefresh, addToast }: Pro
           <div className="version-info">
             <div className="version-name">{v.version}</div>
             {v.isCurrent && <div className="version-badge">● active</div>}
-            {v.external && <div className="version-badge system">system</div>}
+            {v.external && (
+              <div className="version-badge system" title="Detected on this machine — won't be removed by this app">
+                system
+              </div>
+            )}
             {v.external && <div className="version-meta">{v.path}</div>}
           </div>
           <div className="version-actions">
-            {v.external ? (
-              <span className="version-meta" title="Detected on this machine — managed elsewhere">
-                read-only
-              </span>
-            ) : (
-              <>
-                {!v.isCurrent && (
-                  <button
-                    className="btn btn-primary"
-                    disabled={busyVersion === v.version}
-                    onClick={() => handleUse(v.version)}
-                  >
-                    {busyVersion === v.version ? 'Switching…' : 'Use'}
-                  </button>
-                )}
-                {!v.isCurrent && (
-                  <button
-                    className="btn btn-danger"
-                    disabled={busyVersion === v.version}
-                    onClick={() => handleUninstall(v.version)}
-                  >
-                    Uninstall
-                  </button>
-                )}
-              </>
+            {!v.isCurrent && (
+              <button
+                className="btn btn-primary"
+                disabled={busyPath === v.path}
+                onClick={() => handleUse(v)}
+              >
+                {busyPath === v.path ? 'Switching…' : 'Use'}
+              </button>
+            )}
+            {!v.external && !v.isCurrent && (
+              <button
+                className="btn btn-danger"
+                disabled={busyPath === v.path}
+                onClick={() => handleUninstall(v)}
+              >
+                Uninstall
+              </button>
             )}
           </div>
         </div>
