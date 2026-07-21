@@ -4,6 +4,9 @@ node_modules/
 # Electron-builder output — chỉ giữ file installer .exe, bỏ qua phần nặng/phụ trợ
 # (win-unpacked ~216MB và portable .zip ~137MB vượt giới hạn 100MB/file của GitHub)
 release/win-unpacked/
+release/mac/
+release/mac-arm64/
+release/mac-x64/
 release/*.zip
 release/*.blockmap
 release/*.yml

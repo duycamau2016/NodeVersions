@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 
+const IS_WIN = window.platform?.os === 'win32'
+
 export function SettingsTab() {
   const [pathOk, setPathOk] = useState<boolean | null>(null)
   const [profileOk, setProfileOk] = useState<boolean | null>(null)
@@ -27,6 +29,43 @@ export function SettingsTab() {
   }
 
   const allDone = pathOk && profileOk
+
+  if (!IS_WIN) {
+    // macOS/Linux: PATH lives in a single shell profile (~/.zshrc)
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        <div className="path-hint" style={{ borderColor: profileOk ? 'var(--accent)' : 'var(--warning)' }}>
+          <strong style={{ color: 'var(--text)' }}>Shell PATH</strong>
+          <br /><br />
+          {profileOk === null && <span style={{ color: 'var(--text-muted)' }}>Checking...</span>}
+          {profileOk === true
+            ? <span style={{ color: 'var(--accent)' }}>✓ Configured. Open a new terminal and run <code>node --version</code> to verify.</span>
+            : profileOk === false && (
+              <>
+                <p style={{ color: 'var(--text-muted)', fontSize: '12px', marginBottom: '10px' }}>
+                  Adds <code>export PATH="$HOME/.nodevm/current/bin:$PATH"</code> to your <code>~/.zshrc</code>
+                  so the active version is always on PATH when a terminal opens.
+                </p>
+                <button className="btn btn-primary" disabled={busy} onClick={handleSetupProfile}>
+                  {busy ? 'Working...' : 'Configure shell PATH'}
+                </button>
+              </>
+            )}
+        </div>
+
+        <div className="path-hint">
+          <strong style={{ color: 'var(--text)' }}>How it works</strong>
+          <br />
+          Versions are stored in <code>~/.nodevm/versions/</code>.
+          Switching re-points a symlink at <code>~/.nodevm/current/</code> — no admin needed.
+        </div>
+
+        <button className="btn btn-outline" style={{ width: 'fit-content' }} onClick={() => window.nodevm.openInstallDir()}>
+          Open versions folder
+        </button>
+      </div>
+    )
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>

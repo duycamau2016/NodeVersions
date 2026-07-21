@@ -1,5 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
+contextBridge.exposeInMainWorld('platform', {
+  os: process.platform, // 'win32' | 'darwin' | 'linux'
+})
+
 contextBridge.exposeInMainWorld('nodevm', {
   listInstalled: () => ipcRenderer.invoke('nvm:list-installed'),
   listRemote: () => ipcRenderer.invoke('nvm:list-remote'),
