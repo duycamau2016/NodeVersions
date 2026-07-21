@@ -7,6 +7,10 @@ import { promisify } from 'util'
 
 const execAsync = promisify(exec)
 
+const IS_WIN = process.platform === 'win32'
+/** Shell profile edited on macOS/Linux to persist JAVA_HOME + PATH (zsh is the macOS default). */
+const PROFILE_FILE = path.join(os.homedir(), '.zshrc')
+
 export interface InstalledVersion {
   version: string
   isCurrent: boolean
@@ -33,6 +37,24 @@ export class JdkManager {
     fs.mkdirSync(this.versionsDir, { recursive: true })
   }
 
+  /** Adoptium API os/arch tokens for the current platform. */
+  private get _apiOs(): string {
+    return IS_WIN ? 'windows' : process.platform === 'darwin' ? 'mac' : 'linux'
+  }
+  private get _apiArch(): string {
+    return process.arch === 'arm64' ? 'aarch64' : 'x64'
+  }
+
+  private _javaBin(dir: string): string {
+    return IS_WIN ? path.join(dir, 'bin', 'java.exe') : path.join(dir, 'bin', 'java')
+  }
+  private _javacBin(dir: string): string {
+    return IS_WIN ? path.join(dir, 'bin', 'javac.exe') : path.join(dir, 'bin', 'javac')
+  }
+  private _hasJava(dir: string): boolean {
+    return fs.existsSync(this._javaBin(dir))
+  }
+
   listInstalled(): InstalledVersion[] {
     const currentPath = this.getCurrentPath()
     const byVersionDesc = (a: InstalledVersion, b: InstalledVersion) => {
@@ -49,10 +71,7 @@ export class JdkManager {
     )
       .filter((d) => {
         const dir = path.join(this.versionsDir, d)
-        return (
-          fs.statSync(dir).isDirectory() &&
-          fs.existsSync(path.join(dir, 'bin', 'java.exe'))
-        )
+        return fs.statSync(dir).isDirectory() && this._hasJava(dir)
       })
       .map((version) => {
         const dir = path.join(this.versionsDir, version)
@@ -65,7 +84,7 @@ export class JdkManager {
       })
       .sort(byVersionDesc)
 
-    const managedPaths = new Set(managed.map((m) => m.path.toLowerCase()))
+    const managedPaths = new Set(managed.map((m) => this._canon(m.path)))
     const external = this._discoverExternal(managedPaths)
       .map((e) => ({ ...e, isCurrent: this._isActive(e.path, currentPath) }))
       .sort(byVersionDesc)
@@ -75,31 +94,33 @@ export class JdkManager {
 
   getCurrent(): string | null {
     try {
-      // realpathSync resolves the junction and canonicalises casing for display
       return path.basename(fs.realpathSync(this.symlinkPath))
     } catch {
       return null
     }
   }
 
-  /** Canonical, lower-cased on-disk path the `current` junction resolves to (null if unset) */
+  /** Canonical on-disk path the `current` link resolves to (null if unset) */
   private getCurrentPath(): string | null {
-    return this._realLower(this.symlinkPath)
+    return this._real(this.symlinkPath)
   }
 
-  /** Resolve a path to its canonical lower-cased form, or null if it can't be resolved */
-  private _realLower(p: string): string | null {
+  private _canon(p: string): string {
+    return IS_WIN ? p.toLowerCase() : p
+  }
+
+  private _real(p: string): string | null {
     try {
-      return fs.realpathSync(p).toLowerCase()
+      return this._canon(fs.realpathSync(p))
     } catch {
       return null
     }
   }
 
-  /** True when `dir` is the JDK the `current` junction points at */
+  /** True when `dir` is the JDK the `current` link points at */
   private _isActive(dir: string, currentPath: string | null): boolean {
     if (currentPath === null) return false
-    return this._realLower(dir) === currentPath
+    return this._real(dir) === currentPath
   }
 
   async listRemote(): Promise<RemoteVersion[]> {
@@ -122,7 +143,7 @@ export class JdkManager {
         try {
           const url =
             `https://api.adoptium.net/v3/assets/feature_releases/${feature}/ga` +
-            `?architecture=x64&image_type=jdk&os=windows&vendor=eclipse&jvm_impl=hotspot&page_size=1`
+            `?architecture=${this._apiArch}&image_type=jdk&os=${this._apiOs}&vendor=eclipse&jvm_impl=hotspot&page_size=1`
           const assets = await this._getJson<
             Array<{ release_name: string; timestamp: string; binaries: unknown[] }>
           >(url)
@@ -154,43 +175,52 @@ export class JdkManager {
     // Deterministic download endpoint — resolves the exact build by release name.
     const downloadUrl =
       `https://api.adoptium.net/v3/binary/version/${encodeURIComponent(version)}` +
-      `/windows/x64/jdk/hotspot/normal/eclipse?project=jdk`
+      `/${this._apiOs}/${this._apiArch}/jdk/hotspot/normal/eclipse?project=jdk`
 
     const safeName = version.replace(/[^a-zA-Z0-9._-]/g, '_')
-    const tmpZip = path.join(os.tmpdir(), `${safeName}.zip`)
+    const ext = IS_WIN ? 'zip' : 'tar.gz'
+    const tmpArchive = path.join(os.tmpdir(), `${safeName}.${ext}`)
     const tmpExtract = path.join(os.tmpdir(), `jdkvm_${safeName}`)
 
     try {
-      await this._download(downloadUrl, tmpZip, onProgress)
+      await this._download(downloadUrl, tmpArchive, onProgress)
 
       fs.rmSync(tmpExtract, { recursive: true, force: true })
       fs.mkdirSync(tmpExtract, { recursive: true })
 
-      await execAsync(
-        `powershell -Command "Expand-Archive -Force -Path '${tmpZip}' -DestinationPath '${tmpExtract}'"`,
-      )
+      if (IS_WIN) {
+        await execAsync(
+          `powershell -Command "Expand-Archive -Force -Path '${tmpArchive}' -DestinationPath '${tmpExtract}'"`,
+        )
+      } else {
+        await execAsync(`tar -xzf "${tmpArchive}" -C "${tmpExtract}"`)
+      }
 
-      // The zip contains a single top-level JDK folder (e.g. jdk-21.0.11+10).
-      // Locate whichever extracted dir actually holds bin\java.exe.
-      const jdkRoot = this._findJdkRoot(tmpExtract)
+      // The archive contains a single top-level JDK folder. On macOS the actual
+      // JAVA_HOME is nested at <top>/Contents/Home; on Windows it's the top folder.
+      const jdkRoot = this._findJavaHome(tmpExtract)
       if (!jdkRoot) {
-        throw new Error('Extraction failed: bin\\java.exe not found in archive')
+        throw new Error('Extraction failed: bin/java not found in archive')
       }
 
-      await execAsync(`xcopy /E /I /Q "${jdkRoot}" "${destDir}"`, { shell: 'cmd.exe' })
+      if (IS_WIN) {
+        await execAsync(`xcopy /E /I /Q "${jdkRoot}" "${destDir}"`, { shell: 'cmd.exe' })
+      } else {
+        await execAsync(`cp -R "${jdkRoot}" "${destDir}"`)
+      }
 
-      if (!fs.existsSync(path.join(destDir, 'bin', 'java.exe'))) {
+      if (!this._hasJava(destDir)) {
         fs.rmSync(destDir, { recursive: true, force: true })
-        throw new Error('java.exe not found after extraction — download may be corrupted')
+        throw new Error('java not found after extraction — download may be corrupted')
       }
 
-      fs.rmSync(tmpZip, { force: true })
+      fs.rmSync(tmpArchive, { force: true })
       fs.rmSync(tmpExtract, { recursive: true, force: true })
 
       onProgress(100)
       return { success: true }
     } catch (e: unknown) {
-      fs.rmSync(tmpZip, { force: true })
+      fs.rmSync(tmpArchive, { force: true })
       fs.rmSync(tmpExtract, { recursive: true, force: true })
       return { success: false, error: String(e) }
     }
@@ -199,25 +229,39 @@ export class JdkManager {
   /**
    * Activate a JDK. `target` is the JDK home directory — either a managed
    * version folder name (e.g. "jdk-21.0.11+10") or an absolute path to a
-   * system/external JDK (e.g. "C:\\Program Files\\Java\\jdk-21").
+   * system/external JDK.
    */
   use(target: string): { success: boolean; error?: string } {
     const versionDir = path.isAbsolute(target)
       ? path.normalize(target)
       : path.join(this.versionsDir, target)
 
-    if (!fs.existsSync(path.join(versionDir, 'bin', 'java.exe'))) {
+    if (!this._hasJava(versionDir)) {
       return { success: false, error: `No JDK found at ${versionDir}` }
     }
 
     try {
+      this._relink(versionDir)
+      return { success: true }
+    } catch (e: unknown) {
+      return { success: false, error: String(e) }
+    }
+  }
+
+  /** Repoint the `current` link at `versionDir` (junction on Windows, symlink elsewhere). */
+  private _relink(versionDir: string): void {
+    if (IS_WIN) {
       if (fs.existsSync(this.symlinkPath)) {
         execSync(`rmdir "${this.symlinkPath}"`, { shell: 'cmd.exe' })
       }
       execSync(`mklink /J "${this.symlinkPath}" "${versionDir}"`, { shell: 'cmd.exe' })
-      return { success: true }
-    } catch (e: unknown) {
-      return { success: false, error: String(e) }
+    } else {
+      try {
+        fs.unlinkSync(this.symlinkPath)
+      } catch {
+        // nothing to remove
+      }
+      fs.symlinkSync(versionDir, this.symlinkPath, 'dir')
     }
   }
 
@@ -240,109 +284,142 @@ export class JdkManager {
     }
   }
 
-  /** Check if JAVA_HOME points at the junction AND its bin is on the user PATH */
+  /** Check if JAVA_HOME points at the link AND its bin is on the user PATH */
   isEnvConfigured(): boolean {
-    try {
-      const javaHome = execSync(
-        `powershell -Command "[System.Environment]::GetEnvironmentVariable('JAVA_HOME', 'User')"`,
-        { shell: 'cmd.exe', encoding: 'utf8' },
-      ).trim()
-      const userPath = execSync(
-        `powershell -Command "[System.Environment]::GetEnvironmentVariable('Path', 'User')"`,
-        { shell: 'cmd.exe', encoding: 'utf8' },
-      ).trim()
-      const binPath = path.join(this.symlinkPath, 'bin')
-      return (
-        javaHome.toLowerCase() === this.symlinkPath.toLowerCase() &&
-        userPath.toLowerCase().includes(binPath.toLowerCase())
-      )
-    } catch {
-      return false
+    if (IS_WIN) {
+      try {
+        const javaHome = execSync(
+          `powershell -Command "[System.Environment]::GetEnvironmentVariable('JAVA_HOME', 'User')"`,
+          { shell: 'cmd.exe', encoding: 'utf8' },
+        ).trim()
+        const userPath = execSync(
+          `powershell -Command "[System.Environment]::GetEnvironmentVariable('Path', 'User')"`,
+          { shell: 'cmd.exe', encoding: 'utf8' },
+        ).trim()
+        const binPath = path.join(this.symlinkPath, 'bin')
+        return (
+          javaHome.toLowerCase() === this.symlinkPath.toLowerCase() &&
+          userPath.toLowerCase().includes(binPath.toLowerCase())
+        )
+      } catch {
+        return false
+      }
     }
+    return this._profileHasMarker()
   }
 
   /** Set JAVA_HOME = ~/.jdkvm/current and prepend its bin to user PATH (no admin needed) */
   setupEnv(): { success: boolean; error?: string } {
-    try {
-      execSync(
-        `powershell -Command "[System.Environment]::SetEnvironmentVariable('JAVA_HOME', '${this.symlinkPath}', 'User')"`,
-        { shell: 'cmd.exe' },
-      )
-
-      const binPath = path.join(this.symlinkPath, 'bin')
-      const currentPath = execSync(
-        `powershell -Command "[System.Environment]::GetEnvironmentVariable('Path', 'User')"`,
-        { shell: 'cmd.exe', encoding: 'utf8' },
-      ).trim()
-
-      if (!currentPath.toLowerCase().includes(binPath.toLowerCase())) {
-        const newPath = currentPath ? `${binPath};${currentPath}` : binPath
+    if (IS_WIN) {
+      try {
         execSync(
-          `powershell -Command "[System.Environment]::SetEnvironmentVariable('Path', '${newPath}', 'User')"`,
+          `powershell -Command "[System.Environment]::SetEnvironmentVariable('JAVA_HOME', '${this.symlinkPath}', 'User')"`,
           { shell: 'cmd.exe' },
         )
+
+        const binPath = path.join(this.symlinkPath, 'bin')
+        const currentPath = execSync(
+          `powershell -Command "[System.Environment]::GetEnvironmentVariable('Path', 'User')"`,
+          { shell: 'cmd.exe', encoding: 'utf8' },
+        ).trim()
+
+        if (!currentPath.toLowerCase().includes(binPath.toLowerCase())) {
+          const newPath = currentPath ? `${binPath};${currentPath}` : binPath
+          execSync(
+            `powershell -Command "[System.Environment]::SetEnvironmentVariable('Path', '${newPath}', 'User')"`,
+            { shell: 'cmd.exe' },
+          )
+        }
+
+        return { success: true }
+      } catch (e: unknown) {
+        return { success: false, error: String(e) }
       }
-
-      return { success: true }
-    } catch (e: unknown) {
-      return { success: false, error: String(e) }
     }
+    // macOS/Linux: JAVA_HOME + PATH are configured via the shell profile.
+    return this.setupProfile()
   }
 
-  /** Check if PowerShell profile already has the jdkvm lines */
+  /** Check if the shell profile already has the jdkvm lines */
   isProfileConfigured(): boolean {
-    try {
-      const profilePath = execSync(
-        'powershell -Command "$PROFILE.CurrentUserAllHosts"',
-        { shell: 'cmd.exe', encoding: 'utf8' },
-      ).trim()
-      if (!fs.existsSync(profilePath)) return false
-      const content = fs.readFileSync(profilePath, 'utf8')
-      return content.includes('.jdkvm\\current')
-    } catch {
-      return false
+    if (IS_WIN) {
+      try {
+        const profilePath = execSync(
+          'powershell -Command "$PROFILE.CurrentUserAllHosts"',
+          { shell: 'cmd.exe', encoding: 'utf8' },
+        ).trim()
+        if (!fs.existsSync(profilePath)) return false
+        const content = fs.readFileSync(profilePath, 'utf8')
+        return content.includes('.jdkvm\\current')
+      } catch {
+        return false
+      }
     }
+    return this._profileHasMarker()
   }
 
-  /** Inject JAVA_HOME + PATH prepend into PowerShell profile so every new terminal picks up the active JDK */
+  /** Inject JAVA_HOME + PATH prepend into the shell profile so every new terminal picks up the active JDK */
   setupProfile(): { success: boolean; error?: string } {
+    if (IS_WIN) {
+      try {
+        const profilePath = execSync(
+          'powershell -Command "$PROFILE.CurrentUserAllHosts"',
+          { shell: 'cmd.exe', encoding: 'utf8' },
+        ).trim()
+
+        const profileDir = path.dirname(profilePath)
+        fs.mkdirSync(profileDir, { recursive: true })
+
+        const block =
+          `\n# JDKVM — set JAVA_HOME + prepend active JDK to PATH\n` +
+          `$env:JAVA_HOME = "$env:USERPROFILE\\.jdkvm\\current"\n` +
+          `$env:Path = "$env:JAVA_HOME\\bin;$env:Path"\n`
+
+        if (fs.existsSync(profilePath)) {
+          const existing = fs.readFileSync(profilePath, 'utf8')
+          if (existing.includes('.jdkvm\\current')) return { success: true }
+          fs.appendFileSync(profilePath, block, 'utf8')
+        } else {
+          fs.writeFileSync(profilePath, block, 'utf8')
+        }
+
+        const policy = execSync(
+          'powershell -Command "Get-ExecutionPolicy -Scope CurrentUser"',
+          { shell: 'cmd.exe', encoding: 'utf8' },
+        ).trim()
+        if (policy === 'Undefined' || policy === 'Restricted') {
+          execSync(
+            'powershell -Command "Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force"',
+            { shell: 'cmd.exe' },
+          )
+        }
+
+        return { success: true }
+      } catch (e: unknown) {
+        return { success: false, error: String(e) }
+      }
+    }
+
+    // macOS/Linux — set JAVA_HOME + prepend its bin to PATH in ~/.zshrc
     try {
-      const profilePath = execSync(
-        'powershell -Command "$PROFILE.CurrentUserAllHosts"',
-        { shell: 'cmd.exe', encoding: 'utf8' },
-      ).trim()
-
-      const profileDir = path.dirname(profilePath)
-      fs.mkdirSync(profileDir, { recursive: true })
-
+      if (this._profileHasMarker()) return { success: true }
       const block =
         `\n# JDKVM — set JAVA_HOME + prepend active JDK to PATH\n` +
-        `$env:JAVA_HOME = "$env:USERPROFILE\\.jdkvm\\current"\n` +
-        `$env:Path = "$env:JAVA_HOME\\bin;$env:Path"\n`
-
-      if (fs.existsSync(profilePath)) {
-        const existing = fs.readFileSync(profilePath, 'utf8')
-        if (existing.includes('.jdkvm\\current')) return { success: true }
-        fs.appendFileSync(profilePath, block, 'utf8')
-      } else {
-        fs.writeFileSync(profilePath, block, 'utf8')
-      }
-
-      // Ensure PS execution policy allows the profile to load (skip if already permissive)
-      const policy = execSync(
-        'powershell -Command "Get-ExecutionPolicy -Scope CurrentUser"',
-        { shell: 'cmd.exe', encoding: 'utf8' },
-      ).trim()
-      if (policy === 'Undefined' || policy === 'Restricted') {
-        execSync(
-          'powershell -Command "Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force"',
-          { shell: 'cmd.exe' },
-        )
-      }
-
+        `export JAVA_HOME="$HOME/.jdkvm/current"\n` +
+        `export PATH="$JAVA_HOME/bin:$PATH"\n`
+      fs.appendFileSync(PROFILE_FILE, block, 'utf8')
       return { success: true }
     } catch (e: unknown) {
       return { success: false, error: String(e) }
+    }
+  }
+
+  private _profileHasMarker(): boolean {
+    try {
+      if (!fs.existsSync(PROFILE_FILE)) return false
+      return fs.readFileSync(PROFILE_FILE, 'utf8').includes('.jdkvm/current')
+    } catch {
+      return false
     }
   }
 
@@ -377,12 +454,12 @@ export class JdkManager {
       if (!home) return
       try {
         const norm = path.normalize(home).replace(/[\\/]+$/, '')
-        const lower = norm.toLowerCase()
-        if (found.has(lower) || managedPaths.has(lower)) return
-        if (lower.includes('\\.jdkvm\\')) return // our own managed/junction tree
-        // Require the compiler (javac.exe) so JREs are not mistaken for JDKs
-        if (!fs.existsSync(path.join(norm, 'bin', 'javac.exe'))) return
-        found.set(lower, {
+        const key = this._canon(norm)
+        if (found.has(key) || managedPaths.has(key)) return
+        if (key.includes(`${path.sep}.jdkvm${path.sep}`.toLowerCase())) return // our own tree
+        // Require the compiler (javac) so JREs are not mistaken for JDKs
+        if (!fs.existsSync(this._javacBin(norm))) return
+        found.set(key, {
           version: this._jdkLabel(norm),
           isCurrent: false,
           path: norm,
@@ -392,23 +469,6 @@ export class JdkManager {
         // ignore unreadable candidate
       }
     }
-
-    const pf = process.env['ProgramFiles'] || 'C:\\Program Files'
-    const pfx86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)'
-    const parents = [
-      path.join(pf, 'Java'),
-      path.join(pf, 'Eclipse Adoptium'),
-      path.join(pf, 'Eclipse Foundation'),
-      path.join(pf, 'AdoptOpenJDK'),
-      path.join(pf, 'Amazon Corretto'),
-      path.join(pf, 'Microsoft'),
-      path.join(pf, 'Zulu'),
-      path.join(pf, 'Azul', 'Zulu'),
-      path.join(pf, 'BellSoft'),
-      path.join(pf, 'SapMachine'),
-      path.join(pf, 'Semeru'),
-      path.join(pfx86, 'Java'),
-    ]
 
     const safeDirs = (dir: string): string[] => {
       try {
@@ -427,37 +487,91 @@ export class JdkManager {
       }
     }
 
-    // Scan vendor parents up to two levels deep (some vendors nest, e.g. Azul\Zulu\zulu-21)
-    for (const parent of parents) {
-      for (const child of safeDirs(parent)) {
-        if (fs.existsSync(path.join(child, 'bin', 'java.exe'))) add(child)
-        else for (const grand of safeDirs(child)) add(grand)
-      }
-    }
+    if (IS_WIN) {
+      const pf = process.env['ProgramFiles'] || 'C:\\Program Files'
+      const pfx86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)'
+      const parents = [
+        path.join(pf, 'Java'),
+        path.join(pf, 'Eclipse Adoptium'),
+        path.join(pf, 'Eclipse Foundation'),
+        path.join(pf, 'AdoptOpenJDK'),
+        path.join(pf, 'Amazon Corretto'),
+        path.join(pf, 'Microsoft'),
+        path.join(pf, 'Zulu'),
+        path.join(pf, 'Azul', 'Zulu'),
+        path.join(pf, 'BellSoft'),
+        path.join(pf, 'SapMachine'),
+        path.join(pf, 'Semeru'),
+        path.join(pfx86, 'Java'),
+      ]
 
-    // JAVA_HOME (current process) + anything resolvable from PATH
-    add(process.env.JAVA_HOME)
-    try {
-      const out = execSync('where java 2>nul', { shell: 'cmd.exe', encoding: 'utf8' })
-      for (const line of out.split(/\r?\n/)) {
-        const p = line.trim()
-        if (/java\.exe$/i.test(p)) add(path.dirname(path.dirname(p)))
+      // Scan vendor parents up to two levels deep (some vendors nest, e.g. Azul\Zulu\zulu-21)
+      for (const parent of parents) {
+        for (const child of safeDirs(parent)) {
+          if (this._hasJava(child)) add(child)
+          else for (const grand of safeDirs(child)) add(grand)
+        }
       }
-    } catch {
-      // java not on PATH
+
+      add(process.env.JAVA_HOME)
+      try {
+        const out = execSync('where java 2>nul', { shell: 'cmd.exe', encoding: 'utf8' })
+        for (const line of out.split(/\r?\n/)) {
+          const p = line.trim()
+          if (/java\.exe$/i.test(p)) add(path.dirname(path.dirname(p)))
+        }
+      } catch {
+        // java not on PATH
+      }
+    } else {
+      // macOS: the standard JVM location, each bundle exposing Contents/Home.
+      const jvmDir = '/Library/Java/JavaVirtualMachines'
+      for (const bundle of safeDirs(jvmDir)) {
+        const home = path.join(bundle, 'Contents', 'Home')
+        if (this._hasJava(home)) add(home)
+        else if (this._hasJava(bundle)) add(bundle)
+      }
+
+      // /usr/libexec/java_home enumerates every registered JDK (macOS)
+      try {
+        const out = execSync('/usr/libexec/java_home -V 2>&1', { encoding: 'utf8' })
+        for (const m of out.matchAll(/(\/[^\s"']+\/Contents\/Home)/g)) add(m[1])
+      } catch {
+        // java_home unavailable or no JDKs registered
+      }
+
+      add(process.env.JAVA_HOME)
+      try {
+        const out = execSync('which -a java 2>/dev/null', { encoding: 'utf8' })
+        for (const line of out.split(/\r?\n/)) {
+          const p = line.trim()
+          if (!p) continue
+          try {
+            add(path.dirname(path.dirname(fs.realpathSync(p))))
+          } catch {
+            // unresolved entry
+          }
+        }
+      } catch {
+        // java not on PATH
+      }
     }
 
     return Array.from(found.values())
   }
 
-  private _findJdkRoot(dir: string): string | null {
-    if (fs.existsSync(path.join(dir, 'bin', 'java.exe'))) return dir
+  /** Locate the real JAVA_HOME within an extracted archive (handles macOS Contents/Home nesting). */
+  private _findJavaHome(dir: string): string | null {
+    if (this._hasJava(dir)) return dir
+    const macHome = path.join(dir, 'Contents', 'Home')
+    if (this._hasJava(macHome)) return macHome
     for (const entry of fs.readdirSync(dir)) {
       const child = path.join(dir, entry)
       try {
-        if (fs.statSync(child).isDirectory() && fs.existsSync(path.join(child, 'bin', 'java.exe'))) {
-          return child
-        }
+        if (!fs.statSync(child).isDirectory()) continue
+        if (this._hasJava(child)) return child
+        const childMacHome = path.join(child, 'Contents', 'Home')
+        if (this._hasJava(childMacHome)) return childMacHome
       } catch {
         // ignore unreadable entries
       }

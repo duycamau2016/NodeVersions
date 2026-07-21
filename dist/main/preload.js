@@ -1,6 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
+electron_1.contextBridge.exposeInMainWorld('platform', {
+    os: process.platform, // 'win32' | 'darwin' | 'linux'
+});
 electron_1.contextBridge.exposeInMainWorld('nodevm', {
     listInstalled: () => electron_1.ipcRenderer.invoke('nvm:list-installed'),
     listRemote: () => electron_1.ipcRenderer.invoke('nvm:list-remote'),

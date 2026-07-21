@@ -11,11 +11,21 @@ const child_process_1 = require("child_process");
 const os_1 = __importDefault(require("os"));
 const util_1 = require("util");
 const execAsync = (0, util_1.promisify)(child_process_1.exec);
+const IS_WIN = process.platform === 'win32';
+/** Shell profile edited on macOS/Linux to persist PATH (zsh is the macOS default). */
+const PROFILE_FILE = path_1.default.join(os_1.default.homedir(), '.zshrc');
 class NodeManager {
     constructor() {
         this.versionsDir = path_1.default.join(os_1.default.homedir(), '.nodevm', 'versions');
         this.symlinkPath = path_1.default.join(os_1.default.homedir(), '.nodevm', 'current');
         fs_1.default.mkdirSync(this.versionsDir, { recursive: true });
+    }
+    /** Absolute path to the node binary inside an install dir (platform-specific layout). */
+    _nodeBin(dir) {
+        return IS_WIN ? path_1.default.join(dir, 'node.exe') : path_1.default.join(dir, 'bin', 'node');
+    }
+    _hasNode(dir) {
+        return fs_1.default.existsSync(this._nodeBin(dir));
     }
     listInstalled() {
         const currentPath = this.getCurrentPath();
@@ -33,8 +43,7 @@ class NodeManager {
             if (!d.startsWith('v'))
                 return false;
             const dir = path_1.default.join(this.versionsDir, d);
-            return (fs_1.default.statSync(dir).isDirectory() &&
-                fs_1.default.existsSync(path_1.default.join(dir, 'node.exe')));
+            return fs_1.default.statSync(dir).isDirectory() && this._hasNode(dir);
         })
             .map((version) => {
             const dir = path_1.default.join(this.versionsDir, version);
@@ -46,7 +55,7 @@ class NodeManager {
             };
         })
             .sort(byVersionDesc);
-        const managedPaths = new Set(managed.map((m) => m.path.toLowerCase()));
+        const managedPaths = new Set(managed.map((m) => this._canon(m.path)));
         const external = this._discoverExternal(managedPaths)
             .map((e) => ({ ...e, isCurrent: this._isActive(e.path, currentPath) }))
             .sort(byVersionDesc);
@@ -60,12 +69,12 @@ class NodeManager {
                 return;
             try {
                 const norm = path_1.default.normalize(dir).replace(/[\\/]+$/, '');
-                const lower = norm.toLowerCase();
-                if (found.has(lower) || managedPaths.has(lower))
+                const key = this._canon(norm);
+                if (found.has(key) || managedPaths.has(key))
                     return;
-                if (lower.includes('\\.nodevm\\'))
-                    return; // our own managed/junction tree
-                const exe = path_1.default.join(norm, 'node.exe');
+                if (key.includes(`${path_1.default.sep}.nodevm${path_1.default.sep}`.toLowerCase()))
+                    return; // our own tree
+                const exe = this._nodeBin(norm);
                 if (!fs_1.default.existsSync(exe))
                     return;
                 let version = '';
@@ -77,56 +86,88 @@ class NodeManager {
                 }
                 if (!version)
                     version = path_1.default.basename(norm);
-                found.set(lower, { version, isCurrent: false, path: norm, external: true });
+                found.set(key, { version, isCurrent: false, path: norm, external: true });
             }
             catch {
                 // ignore unreadable candidate
             }
         };
-        const pf = process.env['ProgramFiles'] || 'C:\\Program Files';
-        const pfx86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
-        add(path_1.default.join(pf, 'nodejs'));
-        add(path_1.default.join(pfx86, 'nodejs'));
-        try {
-            const out = (0, child_process_1.execSync)('where node 2>nul', { shell: 'cmd.exe', encoding: 'utf8' });
-            for (const line of out.split(/\r?\n/)) {
-                const p = line.trim();
-                if (/node\.exe$/i.test(p))
-                    add(path_1.default.dirname(p));
+        if (IS_WIN) {
+            const pf = process.env['ProgramFiles'] || 'C:\\Program Files';
+            const pfx86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
+            add(path_1.default.join(pf, 'nodejs'));
+            add(path_1.default.join(pfx86, 'nodejs'));
+            try {
+                const out = (0, child_process_1.execSync)('where node 2>nul', { shell: 'cmd.exe', encoding: 'utf8' });
+                for (const line of out.split(/\r?\n/)) {
+                    const p = line.trim();
+                    if (/node\.exe$/i.test(p))
+                        add(path_1.default.dirname(p));
+                }
+            }
+            catch {
+                // node not on PATH
             }
         }
-        catch {
-            // node not on PATH
+        else {
+            // Common macOS/Homebrew prefixes, then anything resolvable from PATH.
+            // Node lives at <prefix>/bin/node, so the install dir is the prefix.
+            for (const bin of ['/opt/homebrew/bin/node', '/usr/local/bin/node', '/usr/bin/node']) {
+                if (fs_1.default.existsSync(bin))
+                    add(path_1.default.dirname(path_1.default.dirname(fs_1.default.realpathSync(bin))));
+            }
+            try {
+                const out = (0, child_process_1.execSync)('which -a node 2>/dev/null', { encoding: 'utf8' });
+                for (const line of out.split(/\r?\n/)) {
+                    const p = line.trim();
+                    if (!p)
+                        continue;
+                    try {
+                        const real = fs_1.default.realpathSync(p);
+                        add(path_1.default.dirname(path_1.default.dirname(real)));
+                    }
+                    catch {
+                        // unresolved entry
+                    }
+                }
+            }
+            catch {
+                // node not on PATH
+            }
         }
         return Array.from(found.values());
     }
     getCurrent() {
         try {
-            // realpathSync resolves the junction and canonicalises casing for display
+            // realpathSync resolves the symlink/junction and canonicalises for display
             return path_1.default.basename(fs_1.default.realpathSync(this.symlinkPath));
         }
         catch {
             return null;
         }
     }
-    /** Canonical, lower-cased on-disk path the `current` junction resolves to (null if unset) */
+    /** Canonical on-disk path the `current` link resolves to (null if unset) */
     getCurrentPath() {
-        return this._realLower(this.symlinkPath);
+        return this._real(this.symlinkPath);
     }
-    /** Resolve a path to its canonical lower-cased form, or null if it can't be resolved */
-    _realLower(p) {
+    /** Canonicalise a path for comparison (case-insensitive on Windows). */
+    _canon(p) {
+        return IS_WIN ? p.toLowerCase() : p;
+    }
+    /** Resolve a path to its canonical form, or null if it can't be resolved */
+    _real(p) {
         try {
-            return fs_1.default.realpathSync(p).toLowerCase();
+            return this._canon(fs_1.default.realpathSync(p));
         }
         catch {
             return null;
         }
     }
-    /** True when `dir` is the install the `current` junction points at */
+    /** True when `dir` is the install the `current` link points at */
     _isActive(dir, currentPath) {
         if (currentPath === null)
             return false;
-        return this._realLower(dir) === currentPath;
+        return this._real(dir) === currentPath;
     }
     async listRemote() {
         return new Promise((resolve, reject) => {
@@ -158,33 +199,33 @@ class NodeManager {
         });
     }
     async install(version, onProgress) {
-        const arch = process.arch === 'x64' ? 'x64' : 'x86';
-        const fileName = `node-${version}-win-${arch}`;
-        const downloadUrl = `https://nodejs.org/dist/${version}/${fileName}.zip`;
         const destDir = path_1.default.join(this.versionsDir, version);
         if (fs_1.default.existsSync(destDir)) {
             return { success: false, error: `Version ${version} is already installed` };
         }
+        return IS_WIN
+            ? this._installWin(version, destDir, onProgress)
+            : this._installUnix(version, destDir, onProgress);
+    }
+    async _installWin(version, destDir, onProgress) {
+        const arch = process.arch === 'x64' ? 'x64' : 'x86';
+        const fileName = `node-${version}-win-${arch}`;
+        const downloadUrl = `https://nodejs.org/dist/${version}/${fileName}.zip`;
         const tmpZip = path_1.default.join(os_1.default.tmpdir(), `${fileName}.zip`);
         try {
-            // Download
             await this._download(downloadUrl, tmpZip, onProgress);
-            // Extract using PowerShell (no external deps)
             const tmpExtract = path_1.default.join(os_1.default.tmpdir(), `nodevm_${version}`);
             fs_1.default.mkdirSync(tmpExtract, { recursive: true });
             await execAsync(`powershell -Command "Expand-Archive -Force -Path '${tmpZip}' -DestinationPath '${tmpExtract}'"`);
-            // Move extracted folder to versionsDir
             const extracted = path_1.default.join(tmpExtract, fileName);
             if (!fs_1.default.existsSync(extracted)) {
                 throw new Error(`Extraction failed: expected folder not found at ${extracted}`);
             }
-            // Use xcopy on Windows (more reliable than renameSync across paths)
             await execAsync(`xcopy /E /I /Q "${extracted}" "${destDir}"`, { shell: 'cmd.exe' });
-            if (!fs_1.default.existsSync(path_1.default.join(destDir, 'node.exe'))) {
+            if (!this._hasNode(destDir)) {
                 fs_1.default.rmSync(destDir, { recursive: true, force: true });
                 throw new Error('node.exe not found after extraction — download may be corrupted');
             }
-            // Cleanup
             fs_1.default.rmSync(tmpZip, { force: true });
             fs_1.default.rmSync(tmpExtract, { recursive: true, force: true });
             onProgress(100);
@@ -195,29 +236,66 @@ class NodeManager {
             return { success: false, error: String(e) };
         }
     }
+    async _installUnix(version, destDir, onProgress) {
+        const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+        const fileName = `node-${version}-darwin-${arch}`;
+        const downloadUrl = `https://nodejs.org/dist/${version}/${fileName}.tar.gz`;
+        const tmpTar = path_1.default.join(os_1.default.tmpdir(), `${fileName}.tar.gz`);
+        try {
+            await this._download(downloadUrl, tmpTar, onProgress);
+            // Extract the tarball's single top-level folder straight into destDir.
+            fs_1.default.mkdirSync(destDir, { recursive: true });
+            await execAsync(`tar -xzf "${tmpTar}" -C "${destDir}" --strip-components=1`);
+            if (!this._hasNode(destDir)) {
+                fs_1.default.rmSync(destDir, { recursive: true, force: true });
+                throw new Error('bin/node not found after extraction — download may be corrupted');
+            }
+            fs_1.default.rmSync(tmpTar, { force: true });
+            onProgress(100);
+            return { success: true };
+        }
+        catch (e) {
+            fs_1.default.rmSync(tmpTar, { force: true });
+            fs_1.default.rmSync(destDir, { recursive: true, force: true });
+            return { success: false, error: String(e) };
+        }
+    }
     /**
      * Activate an install. `target` is the install directory — either a managed
      * version folder name (e.g. "v22.13.0") or an absolute path to a system/external
-     * Node install (e.g. "C:\\Program Files\\nodejs").
+     * Node install.
      */
     use(target) {
         const versionDir = path_1.default.isAbsolute(target)
             ? path_1.default.normalize(target)
             : path_1.default.join(this.versionsDir, target);
-        if (!fs_1.default.existsSync(path_1.default.join(versionDir, 'node.exe'))) {
+        if (!this._hasNode(versionDir)) {
             return { success: false, error: `No Node install found at ${versionDir}` };
         }
         try {
-            // Remove existing junction without touching its target contents
-            if (fs_1.default.existsSync(this.symlinkPath)) {
-                (0, child_process_1.execSync)(`rmdir "${this.symlinkPath}"`, { shell: 'cmd.exe' });
-            }
-            // Create directory junction (works without admin on Windows)
-            (0, child_process_1.execSync)(`mklink /J "${this.symlinkPath}" "${versionDir}"`, { shell: 'cmd.exe' });
+            this._relink(versionDir);
             return { success: true };
         }
         catch (e) {
             return { success: false, error: String(e) };
+        }
+    }
+    /** Repoint the `current` link at `versionDir` (junction on Windows, symlink elsewhere). */
+    _relink(versionDir) {
+        if (IS_WIN) {
+            if (fs_1.default.existsSync(this.symlinkPath)) {
+                (0, child_process_1.execSync)(`rmdir "${this.symlinkPath}"`, { shell: 'cmd.exe' });
+            }
+            (0, child_process_1.execSync)(`mklink /J "${this.symlinkPath}" "${versionDir}"`, { shell: 'cmd.exe' });
+        }
+        else {
+            try {
+                fs_1.default.unlinkSync(this.symlinkPath); // remove existing symlink without touching its target
+            }
+            catch {
+                // nothing to remove
+            }
+            fs_1.default.symlinkSync(versionDir, this.symlinkPath, 'dir');
         }
     }
     uninstall(version) {
@@ -237,66 +315,99 @@ class NodeManager {
             return { success: false, error: String(e) };
         }
     }
-    /** Check if ~/.nodevm/current is already in user PATH */
+    /** Check if ~/.nodevm/current is already wired into the shell/user PATH */
     isPathConfigured() {
-        try {
-            const userPath = (0, child_process_1.execSync)(`powershell -Command "[System.Environment]::GetEnvironmentVariable('Path', 'User')"`, { shell: 'cmd.exe', encoding: 'utf8' }).trim();
-            return userPath.toLowerCase().includes(this.symlinkPath.toLowerCase());
+        if (IS_WIN) {
+            try {
+                const userPath = (0, child_process_1.execSync)(`powershell -Command "[System.Environment]::GetEnvironmentVariable('Path', 'User')"`, { shell: 'cmd.exe', encoding: 'utf8' }).trim();
+                return userPath.toLowerCase().includes(this.symlinkPath.toLowerCase());
+            }
+            catch {
+                return false;
+            }
         }
-        catch {
-            return false;
-        }
+        return this._profileHasMarker();
     }
     /** Prepend ~/.nodevm/current to user PATH permanently (no admin needed) */
     setupPath() {
-        try {
-            const currentPath = (0, child_process_1.execSync)(`powershell -Command "[System.Environment]::GetEnvironmentVariable('Path', 'User')"`, { shell: 'cmd.exe', encoding: 'utf8' }).trim();
-            if (currentPath.toLowerCase().includes(this.symlinkPath.toLowerCase())) {
+        if (IS_WIN) {
+            try {
+                const currentPath = (0, child_process_1.execSync)(`powershell -Command "[System.Environment]::GetEnvironmentVariable('Path', 'User')"`, { shell: 'cmd.exe', encoding: 'utf8' }).trim();
+                if (currentPath.toLowerCase().includes(this.symlinkPath.toLowerCase())) {
+                    return { success: true };
+                }
+                const newPath = currentPath ? `${this.symlinkPath};${currentPath}` : this.symlinkPath;
+                (0, child_process_1.execSync)(`powershell -Command "[System.Environment]::SetEnvironmentVariable('Path', '${newPath}', 'User')"`, { shell: 'cmd.exe' });
                 return { success: true };
             }
-            const newPath = currentPath ? `${this.symlinkPath};${currentPath}` : this.symlinkPath;
-            (0, child_process_1.execSync)(`powershell -Command "[System.Environment]::SetEnvironmentVariable('Path', '${newPath}', 'User')"`, { shell: 'cmd.exe' });
+            catch (e) {
+                return { success: false, error: String(e) };
+            }
+        }
+        // macOS/Linux: PATH is configured via the shell profile (same as setupProfile).
+        return this.setupProfile();
+    }
+    /** Check if the shell profile already has the nodevm prepend line */
+    isProfileConfigured() {
+        if (IS_WIN) {
+            try {
+                const profilePath = (0, child_process_1.execSync)('powershell -Command "$PROFILE.CurrentUserAllHosts"', { shell: 'cmd.exe', encoding: 'utf8' }).trim();
+                if (!fs_1.default.existsSync(profilePath))
+                    return false;
+                const content = fs_1.default.readFileSync(profilePath, 'utf8');
+                return content.includes('.nodevm\\current');
+            }
+            catch {
+                return false;
+            }
+        }
+        return this._profileHasMarker();
+    }
+    /** Inject a PATH prepend into the shell profile so every new terminal picks up the active version */
+    setupProfile() {
+        if (IS_WIN) {
+            try {
+                const profilePath = (0, child_process_1.execSync)('powershell -Command "$PROFILE.CurrentUserAllHosts"', { shell: 'cmd.exe', encoding: 'utf8' }).trim();
+                const profileDir = path_1.default.dirname(profilePath);
+                fs_1.default.mkdirSync(profileDir, { recursive: true });
+                const line = `\n# NodeVM — prepend active version to PATH\n$env:Path = "$env:USERPROFILE\\.nodevm\\current;$env:Path"\n`;
+                if (fs_1.default.existsSync(profilePath)) {
+                    const existing = fs_1.default.readFileSync(profilePath, 'utf8');
+                    if (existing.includes('.nodevm\\current'))
+                        return { success: true };
+                    fs_1.default.appendFileSync(profilePath, line, 'utf8');
+                }
+                else {
+                    fs_1.default.writeFileSync(profilePath, line, 'utf8');
+                }
+                (0, child_process_1.execSync)('powershell -Command "Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force"', { shell: 'cmd.exe' });
+                return { success: true };
+            }
+            catch (e) {
+                return { success: false, error: String(e) };
+            }
+        }
+        // macOS/Linux — prepend ~/.nodevm/current/bin to PATH in ~/.zshrc
+        try {
+            const block = `\n# NodeVM — prepend active version to PATH\n` +
+                `export PATH="$HOME/.nodevm/current/bin:$PATH"\n`;
+            if (this._profileHasMarker())
+                return { success: true };
+            fs_1.default.appendFileSync(PROFILE_FILE, block, 'utf8');
             return { success: true };
         }
         catch (e) {
             return { success: false, error: String(e) };
         }
     }
-    /** Check if PowerShell profile already has the nodevm prepend line */
-    isProfileConfigured() {
+    _profileHasMarker() {
         try {
-            const profilePath = (0, child_process_1.execSync)('powershell -Command "$PROFILE.CurrentUserAllHosts"', { shell: 'cmd.exe', encoding: 'utf8' }).trim();
-            if (!fs_1.default.existsSync(profilePath))
+            if (!fs_1.default.existsSync(PROFILE_FILE))
                 return false;
-            const content = fs_1.default.readFileSync(profilePath, 'utf8');
-            return content.includes('.nodevm\\current');
+            return fs_1.default.readFileSync(PROFILE_FILE, 'utf8').includes('.nodevm/current');
         }
         catch {
             return false;
-        }
-    }
-    /** Inject PATH prepend into PowerShell profile so every new terminal picks up the active version */
-    setupProfile() {
-        try {
-            const profilePath = (0, child_process_1.execSync)('powershell -Command "$PROFILE.CurrentUserAllHosts"', { shell: 'cmd.exe', encoding: 'utf8' }).trim();
-            const profileDir = path_1.default.dirname(profilePath);
-            fs_1.default.mkdirSync(profileDir, { recursive: true });
-            const line = `\n# NodeVM — prepend active version to PATH\n$env:Path = "$env:USERPROFILE\\.nodevm\\current;$env:Path"\n`;
-            if (fs_1.default.existsSync(profilePath)) {
-                const existing = fs_1.default.readFileSync(profilePath, 'utf8');
-                if (existing.includes('.nodevm\\current'))
-                    return { success: true };
-                fs_1.default.appendFileSync(profilePath, line, 'utf8');
-            }
-            else {
-                fs_1.default.writeFileSync(profilePath, line, 'utf8');
-            }
-            // Also ensure PS execution policy allows profile
-            (0, child_process_1.execSync)('powershell -Command "Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force"', { shell: 'cmd.exe' });
-            return { success: true };
-        }
-        catch (e) {
-            return { success: false, error: String(e) };
         }
     }
     _download(url, dest, onProgress) {

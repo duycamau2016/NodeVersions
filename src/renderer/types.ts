@@ -47,9 +47,14 @@ export interface JdkApi extends VmApi {
   checkProfile: () => Promise<boolean>
 }
 
+export interface PlatformApi {
+  os: 'win32' | 'darwin' | 'linux'
+}
+
 declare global {
   interface Window {
     nodevm: NodeApi
     jdkvm: JdkApi
+    platform: PlatformApi
   }
 }
