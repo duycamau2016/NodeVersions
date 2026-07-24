@@ -44,6 +44,10 @@ electron_1.app.on('window-all-closed', () => {
         electron_1.app.quit();
 });
 // ── Auto-update (electron-updater + GitHub Releases) ──────────
+// True while a user-initiated check is running. The automatic startup check
+// stays silent — its failures (no releases yet, offline, 404) must not surface
+// as scary banners.
+let manualUpdateCheck = false;
 function setupAutoUpdate() {
     // Only meaningful in a packaged build; skip in dev to avoid noisy errors.
     if (!electron_1.app.isPackaged)
@@ -54,7 +58,8 @@ function setupAutoUpdate() {
         win?.webContents.send('update:available', info.version);
     });
     electron_updater_1.autoUpdater.on('update-not-available', () => {
-        win?.webContents.send('update:none');
+        if (manualUpdateCheck)
+            win?.webContents.send('update:none');
     });
     electron_updater_1.autoUpdater.on('download-progress', (p) => {
         win?.webContents.send('update:progress', Math.round(p.percent));
@@ -63,14 +68,30 @@ function setupAutoUpdate() {
         win?.webContents.send('update:downloaded', info.version);
     });
     electron_updater_1.autoUpdater.on('error', (err) => {
-        win?.webContents.send('update:error', String(err?.message ?? err));
+        const message = String(err?.message ?? err);
+        // Only bother the user about errors when they explicitly asked to check.
+        if (manualUpdateCheck)
+            win?.webContents.send('update:error', message);
+        else
+            console.warn('[auto-update] background check failed:', message);
     });
-    electron_updater_1.autoUpdater.checkForUpdates();
+    // Silent background check — swallow the promise rejection.
+    electron_updater_1.autoUpdater.checkForUpdates().catch(() => { });
 }
-electron_1.ipcMain.handle('update:check', () => {
+electron_1.ipcMain.handle('update:check', async () => {
     if (!electron_1.app.isPackaged)
         return { success: false, error: 'Updates are only available in the installed app.' };
-    return electron_updater_1.autoUpdater.checkForUpdates().then(() => ({ success: true }), (err) => ({ success: false, error: String(err?.message ?? err) }));
+    manualUpdateCheck = true;
+    try {
+        await electron_updater_1.autoUpdater.checkForUpdates();
+        return { success: true };
+    }
+    catch (err) {
+        return { success: false, error: String(err?.message ?? err) };
+    }
+    finally {
+        manualUpdateCheck = false;
+    }
 });
 // Quit and install the downloaded update. isSilent=false shows the installer;
 // isForceRunAfter=true relaunches the app afterwards.

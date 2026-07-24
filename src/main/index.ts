@@ -43,6 +43,12 @@ app.on('window-all-closed', () => {
 })
 
 // ── Auto-update (electron-updater + GitHub Releases) ──────────
+
+// True while a user-initiated check is running. The automatic startup check
+// stays silent — its failures (no releases yet, offline, 404) must not surface
+// as scary banners.
+let manualUpdateCheck = false
+
 function setupAutoUpdate() {
   // Only meaningful in a packaged build; skip in dev to avoid noisy errors.
   if (!app.isPackaged) return
@@ -54,7 +60,7 @@ function setupAutoUpdate() {
     win?.webContents.send('update:available', info.version)
   })
   autoUpdater.on('update-not-available', () => {
-    win?.webContents.send('update:none')
+    if (manualUpdateCheck) win?.webContents.send('update:none')
   })
   autoUpdater.on('download-progress', (p) => {
     win?.webContents.send('update:progress', Math.round(p.percent))
@@ -63,18 +69,27 @@ function setupAutoUpdate() {
     win?.webContents.send('update:downloaded', info.version)
   })
   autoUpdater.on('error', (err) => {
-    win?.webContents.send('update:error', String(err?.message ?? err))
+    const message = String(err?.message ?? err)
+    // Only bother the user about errors when they explicitly asked to check.
+    if (manualUpdateCheck) win?.webContents.send('update:error', message)
+    else console.warn('[auto-update] background check failed:', message)
   })
 
-  autoUpdater.checkForUpdates()
+  // Silent background check — swallow the promise rejection.
+  autoUpdater.checkForUpdates().catch(() => {})
 }
 
-ipcMain.handle('update:check', () => {
+ipcMain.handle('update:check', async () => {
   if (!app.isPackaged) return { success: false, error: 'Updates are only available in the installed app.' }
-  return autoUpdater.checkForUpdates().then(
-    () => ({ success: true }),
-    (err) => ({ success: false, error: String(err?.message ?? err) }),
-  )
+  manualUpdateCheck = true
+  try {
+    await autoUpdater.checkForUpdates()
+    return { success: true }
+  } catch (err: any) {
+    return { success: false, error: String(err?.message ?? err) }
+  } finally {
+    manualUpdateCheck = false
+  }
 })
 
 // Quit and install the downloaded update. isSilent=false shows the installer;

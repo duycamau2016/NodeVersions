@@ -5,6 +5,7 @@ import { SettingsTab } from './components/SettingsTab'
 import { JdkSettingsTab } from './components/JdkSettingsTab'
 import { PortsTab } from './components/PortsTab'
 import { UpdateBanner } from './components/UpdateBanner'
+import { UpdateSection } from './components/UpdateSection'
 import { ToastContainer, type Toast } from './components/Toast'
 
 type Tool = 'node' | 'java'
@@ -99,7 +100,12 @@ export default function App() {
           <InstallTab key={tool} api={api} sourceLabel={meta.source} onInstalled={refresh} addToast={addToast} />
         )}
         {tab === 'ports' && <PortsTab addToast={addToast} />}
-        {tab === 'settings' && (tool === 'node' ? <SettingsTab /> : <JdkSettingsTab />)}
+        {tab === 'settings' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {tool === 'node' ? <SettingsTab /> : <JdkSettingsTab />}
+            <UpdateSection />
+          </div>
+        )}
       </main>
 
       <ToastContainer toasts={toasts} />
