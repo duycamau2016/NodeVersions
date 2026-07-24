@@ -1,6 +1,6 @@
 {
   "name": "nodeversions",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "GUI Node & JDK Version Manager for Windows and macOS",
   "main": "dist/main/index.js",
   "scripts": {
