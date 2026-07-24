@@ -98,4 +98,3 @@ sau sẽ **tự cập nhật** (auto-update).
 
 - Quản lý nhiều version **Node** và **JDK**: cài, gỡ, chuyển đổi (kể cả bản có sẵn trên máy).
 - **Ports**: giám sát các cổng đang được process Node/Java lắng nghe, kill nhanh theo PID.
-- Tự động cập nhật ứng dụng qua GitHub Releases.
