@@ -1,6 +1,6 @@
 name: Release
 
-# Đẩy 1 tag dạng v1.0.2 -> CI build installer + latest.yml rồi tạo GitHub Release.
+# Đẩy 1 tag dạng v1.1.0 -> CI build installer (Windows + macOS) rồi tạo GitHub Release.
 on:
   push:
     tags:
@@ -10,8 +10,17 @@ permissions:
   contents: write   # cần để electron-builder tạo Release + upload asset
 
 jobs:
-  release-windows:
-    runs-on: windows-latest
+  release:
+    strategy:
+      fail-fast: false        # 1 nền tảng lỗi không hủy nền tảng còn lại
+      matrix:
+        include:
+          - os: windows-latest
+            platform: --win     # -> Node Version Manager Setup X.Y.Z.exe + latest.yml
+          - os: macos-latest
+            platform: --mac     # -> Node Version Manager-X.Y.Z(-arm64).dmg
+
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -25,8 +34,8 @@ jobs:
       - name: Build renderer + main
         run: npm run build
 
-      - name: Package installer and publish to GitHub Releases
+      - name: Package and publish to GitHub Releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'   # build không ký số
-        run: npx electron-builder --win --publish always
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'   # build không ký số (cả win lẫn mac)
+        run: npx electron-builder ${{ matrix.platform }} --publish always

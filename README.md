@@ -47,7 +47,7 @@ npm run dist
 
 Việc build + phát hành được thực hiện **tự động bằng GitHub Actions**
 ([.github/workflows/release.yml](.github/workflows/release.yml)) khi bạn **push một tag `v*`**.
-CI build installer + `latest.yml` (cho auto-update) và tạo GitHub Release.
+CI build **cả Windows (.exe) lẫn macOS (.dmg)** + `latest.yml` (cho auto-update Windows) và tạo GitHub Release.
 
 > **Quan trọng:** trigger là **push tag**, KHÔNG phải nội dung commit message.
 > Và `version` trong `package.json` **phải khớp** với tag — vì vậy hãy dùng `npm version`
@@ -68,7 +68,8 @@ git push origin main --follow-tags
 ### 3. Publish release
 - Theo dõi build tại: **https://github.com/duycamau2016/NodeVersions/actions**
 - Khi xong, CI tạo một **Release dạng draft** kèm các file:
-  `Node Version Manager Setup X.Y.Z.exe`, `latest.yml`, `.blockmap`.
+  - **Windows:** `Node Version Manager Setup X.Y.Z.exe`, `latest.yml`, `.blockmap`
+  - **macOS:** `Node Version Manager-X.Y.Z.dmg` (Intel) và `Node Version Manager-X.Y.Z-arm64.dmg` (Apple Silicon)
 - Vào **https://github.com/duycamau2016/NodeVersions/releases** → mở draft → bấm **Publish release**.
 
 > Release còn ở dạng **draft** thì **người dùng không thấy** và **auto-update không nhận**.
@@ -79,8 +80,12 @@ Sau khi Publish, gửi cho người dùng link:
 ```
 https://github.com/duycamau2016/NodeVersions/releases/latest
 ```
-Họ tải file `Node Version Manager Setup X.Y.Z.exe` để cài. Chỉ cần cài **một lần** — các bản
-sau sẽ **tự cập nhật** (auto-update).
+- **Windows:** tải `Node Version Manager Setup X.Y.Z.exe`. Cài **một lần** — các bản sau **tự cập nhật**.
+- **macOS:** tải file `.dmg` đúng loại chip (arm64 cho Apple Silicon, bản còn lại cho Intel), mở và kéo app vào Applications.
+
+> **macOS chưa ký số:** lần đầu mở, macOS sẽ chặn ("không mở được vì chưa xác định nhà phát triển").
+> Cách mở: chuột phải vào app → **Open** → **Open**; hoặc vào System Settings → Privacy & Security →
+> bấm **Open Anyway**. Người dùng macOS phải **tự tải bản mới** mỗi lần (không có auto-update — xem bên dưới).
 
 ---
 
