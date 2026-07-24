@@ -5,11 +5,14 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 const electron_1 = require("electron");
 const path_1 = __importDefault(require("path"));
+const electron_updater_1 = require("electron-updater");
 const nodeManager_1 = require("./nodeManager");
 const jdkManager_1 = require("./jdkManager");
+const portManager_1 = require("./portManager");
 let win = null;
 const nodeManager = new nodeManager_1.NodeManager();
 const jdkManager = new jdkManager_1.JdkManager();
+const portManager = new portManager_1.PortManager();
 function createWindow() {
     win = new electron_1.BrowserWindow({
         width: 900,
@@ -32,11 +35,49 @@ function createWindow() {
         win.loadFile(path_1.default.join(__dirname, '../renderer/index.html'));
     }
 }
-electron_1.app.whenReady().then(createWindow);
+electron_1.app.whenReady().then(() => {
+    createWindow();
+    setupAutoUpdate();
+});
 electron_1.app.on('window-all-closed', () => {
     if (process.platform !== 'darwin')
         electron_1.app.quit();
 });
+// ── Auto-update (electron-updater + GitHub Releases) ──────────
+function setupAutoUpdate() {
+    // Only meaningful in a packaged build; skip in dev to avoid noisy errors.
+    if (!electron_1.app.isPackaged)
+        return;
+    electron_updater_1.autoUpdater.autoDownload = true;
+    electron_updater_1.autoUpdater.autoInstallOnAppQuit = true;
+    electron_updater_1.autoUpdater.on('update-available', (info) => {
+        win?.webContents.send('update:available', info.version);
+    });
+    electron_updater_1.autoUpdater.on('update-not-available', () => {
+        win?.webContents.send('update:none');
+    });
+    electron_updater_1.autoUpdater.on('download-progress', (p) => {
+        win?.webContents.send('update:progress', Math.round(p.percent));
+    });
+    electron_updater_1.autoUpdater.on('update-downloaded', (info) => {
+        win?.webContents.send('update:downloaded', info.version);
+    });
+    electron_updater_1.autoUpdater.on('error', (err) => {
+        win?.webContents.send('update:error', String(err?.message ?? err));
+    });
+    electron_updater_1.autoUpdater.checkForUpdates();
+}
+electron_1.ipcMain.handle('update:check', () => {
+    if (!electron_1.app.isPackaged)
+        return { success: false, error: 'Updates are only available in the installed app.' };
+    return electron_updater_1.autoUpdater.checkForUpdates().then(() => ({ success: true }), (err) => ({ success: false, error: String(err?.message ?? err) }));
+});
+// Quit and install the downloaded update. isSilent=false shows the installer;
+// isForceRunAfter=true relaunches the app afterwards.
+electron_1.ipcMain.handle('update:install', () => {
+    electron_updater_1.autoUpdater.quitAndInstall(false, true);
+});
+electron_1.ipcMain.handle('update:current-version', () => electron_1.app.getVersion());
 // ── IPC handlers ──────────────────────────────────────────────
 electron_1.ipcMain.handle('nvm:list-installed', () => nodeManager.listInstalled());
 electron_1.ipcMain.handle('nvm:list-remote', () => nodeManager.listRemote());
@@ -74,3 +115,6 @@ electron_1.ipcMain.handle('jvm:setup-env', () => jdkManager.setupEnv());
 electron_1.ipcMain.handle('jvm:check-env', () => jdkManager.isEnvConfigured());
 electron_1.ipcMain.handle('jvm:setup-profile', () => jdkManager.setupProfile());
 electron_1.ipcMain.handle('jvm:check-profile', () => jdkManager.isProfileConfigured());
+// ── Port monitor IPC handlers ─────────────────────────────────
+electron_1.ipcMain.handle('port:list', () => portManager.listPorts());
+electron_1.ipcMain.handle('port:kill', (_e, pid) => portManager.killProcess(pid));

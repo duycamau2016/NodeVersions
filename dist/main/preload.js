@@ -42,3 +42,22 @@ electron_1.contextBridge.exposeInMainWorld('jdkvm', {
     setupProfile: () => electron_1.ipcRenderer.invoke('jvm:setup-profile'),
     checkProfile: () => electron_1.ipcRenderer.invoke('jvm:check-profile'),
 });
+electron_1.contextBridge.exposeInMainWorld('portvm', {
+    listPorts: () => electron_1.ipcRenderer.invoke('port:list'),
+    killPort: (pid) => electron_1.ipcRenderer.invoke('port:kill', pid),
+});
+electron_1.contextBridge.exposeInMainWorld('updatevm', {
+    check: () => electron_1.ipcRenderer.invoke('update:check'),
+    install: () => electron_1.ipcRenderer.invoke('update:install'),
+    getCurrentVersion: () => electron_1.ipcRenderer.invoke('update:current-version'),
+    onAvailable: (cb) => electron_1.ipcRenderer.on('update:available', (_e, version) => cb(version)),
+    onNone: (cb) => electron_1.ipcRenderer.on('update:none', () => cb()),
+    onProgress: (cb) => electron_1.ipcRenderer.on('update:progress', (_e, percent) => cb(percent)),
+    onDownloaded: (cb) => electron_1.ipcRenderer.on('update:downloaded', (_e, version) => cb(version)),
+    onError: (cb) => electron_1.ipcRenderer.on('update:error', (_e, message) => cb(message)),
+    removeListeners: () => {
+        for (const ch of ['update:available', 'update:none', 'update:progress', 'update:downloaded', 'update:error']) {
+            electron_1.ipcRenderer.removeAllListeners(ch);
+        }
+    },
+});

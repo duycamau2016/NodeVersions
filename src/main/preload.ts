@@ -43,3 +43,28 @@ contextBridge.exposeInMainWorld('jdkvm', {
   setupProfile: () => ipcRenderer.invoke('jvm:setup-profile'),
   checkProfile: () => ipcRenderer.invoke('jvm:check-profile'),
 })
+
+contextBridge.exposeInMainWorld('portvm', {
+  listPorts: () => ipcRenderer.invoke('port:list'),
+  killPort: (pid: number) => ipcRenderer.invoke('port:kill', pid),
+})
+
+contextBridge.exposeInMainWorld('updatevm', {
+  check: () => ipcRenderer.invoke('update:check'),
+  install: () => ipcRenderer.invoke('update:install'),
+  getCurrentVersion: () => ipcRenderer.invoke('update:current-version'),
+  onAvailable: (cb: (version: string) => void) =>
+    ipcRenderer.on('update:available', (_e, version) => cb(version)),
+  onNone: (cb: () => void) => ipcRenderer.on('update:none', () => cb()),
+  onProgress: (cb: (percent: number) => void) =>
+    ipcRenderer.on('update:progress', (_e, percent) => cb(percent)),
+  onDownloaded: (cb: (version: string) => void) =>
+    ipcRenderer.on('update:downloaded', (_e, version) => cb(version)),
+  onError: (cb: (message: string) => void) =>
+    ipcRenderer.on('update:error', (_e, message) => cb(message)),
+  removeListeners: () => {
+    for (const ch of ['update:available', 'update:none', 'update:progress', 'update:downloaded', 'update:error']) {
+      ipcRenderer.removeAllListeners(ch)
+    }
+  },
+})

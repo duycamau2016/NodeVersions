@@ -3,10 +3,12 @@ import { InstalledTab } from './components/InstalledTab'
 import { InstallTab } from './components/InstallTab'
 import { SettingsTab } from './components/SettingsTab'
 import { JdkSettingsTab } from './components/JdkSettingsTab'
+import { PortsTab } from './components/PortsTab'
+import { UpdateBanner } from './components/UpdateBanner'
 import { ToastContainer, type Toast } from './components/Toast'
 
 type Tool = 'node' | 'java'
-type Tab = 'installed' | 'install' | 'settings'
+type Tab = 'installed' | 'install' | 'ports' | 'settings'
 
 const TOOLS: Record<Tool, { title: string; noun: string; source: string }> = {
   node: { title: '⬡ Node Version Manager', noun: 'Node', source: 'nodejs.org' },
@@ -65,12 +67,17 @@ export default function App() {
         </div>
       </header>
 
+      <UpdateBanner />
+
       <nav className="tabs">
         <button className={`tab ${tab === 'installed' ? 'active' : ''}`} onClick={() => setTab('installed')}>
           Installed
         </button>
         <button className={`tab ${tab === 'install' ? 'active' : ''}`} onClick={() => setTab('install')}>
           Install New
+        </button>
+        <button className={`tab ${tab === 'ports' ? 'active' : ''}`} onClick={() => setTab('ports')}>
+          Ports
         </button>
         <button className={`tab ${tab === 'settings' ? 'active' : ''}`} onClick={() => setTab('settings')}>
           Settings / Help
@@ -91,6 +98,7 @@ export default function App() {
         {tab === 'install' && (
           <InstallTab key={tool} api={api} sourceLabel={meta.source} onInstalled={refresh} addToast={addToast} />
         )}
+        {tab === 'ports' && <PortsTab addToast={addToast} />}
         {tab === 'settings' && (tool === 'node' ? <SettingsTab /> : <JdkSettingsTab />)}
       </main>
 

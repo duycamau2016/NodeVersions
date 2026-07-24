@@ -1,11 +1,14 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import path from 'path'
+import { autoUpdater } from 'electron-updater'
 import { NodeManager } from './nodeManager'
 import { JdkManager } from './jdkManager'
+import { PortManager } from './portManager'
 
 let win: BrowserWindow | null = null
 const nodeManager = new NodeManager()
 const jdkManager = new JdkManager()
+const portManager = new PortManager()
 
 function createWindow() {
   win = new BrowserWindow({
@@ -30,11 +33,57 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(createWindow)
+app.whenReady().then(() => {
+  createWindow()
+  setupAutoUpdate()
+})
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
+
+// ── Auto-update (electron-updater + GitHub Releases) ──────────
+function setupAutoUpdate() {
+  // Only meaningful in a packaged build; skip in dev to avoid noisy errors.
+  if (!app.isPackaged) return
+
+  autoUpdater.autoDownload = true
+  autoUpdater.autoInstallOnAppQuit = true
+
+  autoUpdater.on('update-available', (info) => {
+    win?.webContents.send('update:available', info.version)
+  })
+  autoUpdater.on('update-not-available', () => {
+    win?.webContents.send('update:none')
+  })
+  autoUpdater.on('download-progress', (p) => {
+    win?.webContents.send('update:progress', Math.round(p.percent))
+  })
+  autoUpdater.on('update-downloaded', (info) => {
+    win?.webContents.send('update:downloaded', info.version)
+  })
+  autoUpdater.on('error', (err) => {
+    win?.webContents.send('update:error', String(err?.message ?? err))
+  })
+
+  autoUpdater.checkForUpdates()
+}
+
+ipcMain.handle('update:check', () => {
+  if (!app.isPackaged) return { success: false, error: 'Updates are only available in the installed app.' }
+  return autoUpdater.checkForUpdates().then(
+    () => ({ success: true }),
+    (err) => ({ success: false, error: String(err?.message ?? err) }),
+  )
+})
+
+// Quit and install the downloaded update. isSilent=false shows the installer;
+// isForceRunAfter=true relaunches the app afterwards.
+ipcMain.handle('update:install', () => {
+  autoUpdater.quitAndInstall(false, true)
+})
+
+ipcMain.handle('update:current-version', () => app.getVersion())
 
 // ── IPC handlers ──────────────────────────────────────────────
 
@@ -96,3 +145,9 @@ ipcMain.handle('jvm:check-env', () => jdkManager.isEnvConfigured())
 ipcMain.handle('jvm:setup-profile', () => jdkManager.setupProfile())
 
 ipcMain.handle('jvm:check-profile', () => jdkManager.isProfileConfigured())
+
+// ── Port monitor IPC handlers ─────────────────────────────────
+
+ipcMain.handle('port:list', () => portManager.listPorts())
+
+ipcMain.handle('port:kill', (_e, pid: number) => portManager.killProcess(pid))

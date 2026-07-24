@@ -51,10 +51,40 @@ export interface PlatformApi {
   os: 'win32' | 'darwin' | 'linux'
 }
 
+// ── Port monitor ──────────────────────────────────────────────
+export interface PortInfo {
+  port: number
+  pid: number
+  processName: string
+  runtime: 'node' | 'java'
+  address: string
+  protocol: 'TCP'
+}
+
+export interface PortApi {
+  listPorts: () => Promise<PortInfo[]>
+  killPort: (pid: number) => Promise<ActionResult>
+}
+
+// ── Auto-update ───────────────────────────────────────────────
+export interface UpdateApi {
+  check: () => Promise<ActionResult>
+  install: () => Promise<void>
+  getCurrentVersion: () => Promise<string>
+  onAvailable: (cb: (version: string) => void) => void
+  onNone: (cb: () => void) => void
+  onProgress: (cb: (percent: number) => void) => void
+  onDownloaded: (cb: (version: string) => void) => void
+  onError: (cb: (message: string) => void) => void
+  removeListeners: () => void
+}
+
 declare global {
   interface Window {
     nodevm: NodeApi
     jdkvm: JdkApi
+    portvm: PortApi
+    updatevm: UpdateApi
     platform: PlatformApi
   }
 }

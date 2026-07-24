@@ -168,6 +168,73 @@ body {
 
 .version-badge.lts { background: #1e3a5f; color: #60a5fa; }
 .version-badge.system { background: #3a2f1e; color: var(--warning); }
+.version-badge.node { background: var(--accent-dim); color: var(--accent); }
+.version-badge.java { background: #3a2a1e; color: #fb923c; }
+
+/* ── Ports toolbar ────────────────────────────────────────── */
+.ports-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ports-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ports-autorefresh {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.ports-autorefresh input { cursor: pointer; accent-color: var(--accent); }
+
+/* ── Update banner ────────────────────────────────────────── */
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 20px;
+  background: #0d1f14;
+  border-bottom: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.update-banner.error {
+  background: #1f0d0d;
+  border-bottom-color: var(--danger);
+  color: var(--danger);
+}
+
+.update-banner .btn { margin-left: auto; }
+
+.update-progress {
+  flex: 1;
+  max-width: 220px;
+  height: 4px;
+  background: var(--surface2);
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.update-progress-bar {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 99px;
+  transition: width 0.2s;
+}
 
 .version-meta {
   font-size: 11px;

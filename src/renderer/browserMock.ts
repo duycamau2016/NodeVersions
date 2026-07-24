@@ -1,6 +1,12 @@
 // Browser dev mock — injected when window.nodevm / window.jdkvm are not
 // available (running in a browser, not Electron)
-import type { InstalledVersion, RemoteVersion, ActionResult } from './types'
+import type { InstalledVersion, RemoteVersion, ActionResult, PortInfo } from './types'
+
+const mockPorts: PortInfo[] = [
+  { port: 3000, pid: 11234, processName: 'node.exe', runtime: 'node', address: '0.0.0.0', protocol: 'TCP' },
+  { port: 5173, pid: 11890, processName: 'node.exe', runtime: 'node', address: '127.0.0.1', protocol: 'TCP' },
+  { port: 8080, pid: 22456, processName: 'java.exe', runtime: 'java', address: '0.0.0.0', protocol: 'TCP' },
+]
 
 const mockNodeInstalled: InstalledVersion[] = [
   { version: 'v22.13.0', isCurrent: true, path: 'C:\\Users\\user\\.nodevm\\versions\\v22.13.0' },
@@ -109,5 +115,32 @@ export function injectBrowserMock() {
       checkEnv: async () => false,
     }
     console.info('[mock] window.jdkvm mock injected for browser dev preview')
+  }
+
+  if (!window.portvm) {
+    w.portvm = {
+      listPorts: async (): Promise<PortInfo[]> => mockPorts.map((p) => ({ ...p })),
+      killPort: async (pid: number): Promise<ActionResult> => {
+        const i = mockPorts.findIndex((p) => p.pid === pid)
+        if (i !== -1) mockPorts.splice(i, 1)
+        return { success: true }
+      },
+    }
+    console.info('[mock] window.portvm mock injected for browser dev preview')
+  }
+
+  if (!window.updatevm) {
+    w.updatevm = {
+      check: async (): Promise<ActionResult> => ({ success: true }),
+      install: async () => alert('Mock: would restart and install the update'),
+      getCurrentVersion: async () => '1.0.1 (dev)',
+      onAvailable: () => {},
+      onNone: () => {},
+      onProgress: () => {},
+      onDownloaded: () => {},
+      onError: () => {},
+      removeListeners: () => {},
+    }
+    console.info('[mock] window.updatevm mock injected for browser dev preview')
   }
 }
