@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="216 180 592 664">
+  <defs>
+    <linearGradient id="hex" x1="0.25" y1="0" x2="0.75" y2="1">
+      <stop offset="0" stop-color="#86EFAC"/>
+      <stop offset="0.45" stop-color="#34D399"/>
+      <stop offset="1" stop-color="#0E9F6E"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.35"/>
+      <stop offset="0.5" stop-color="#FFFFFF" stop-opacity="0.05"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <path d="M512 242 L745.8 377 L745.8 647 L512 782 L278.2 647 L278.2 377 Z"
+        fill="url(#hex)" stroke="url(#hex)" stroke-width="56" stroke-linejoin="round"/>
+  <path d="M512 242 L745.8 377 L745.8 647 L512 782 L278.2 647 L278.2 377 Z"
+        fill="url(#sheen)" stroke="url(#sheen)" stroke-width="56" stroke-linejoin="round"/>
+
+  <g stroke="#0B1626" stroke-width="52" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <path d="M438 612 L438 450"/>
+    <path d="M390 498 L438 450 L486 498"/>
+    <path d="M586 412 L586 574"/>
+    <path d="M538 526 L586 574 L634 526"/>
+  </g>
+</svg>

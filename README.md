@@ -1,5 +1,24 @@
+<p align="center">
+  <img src="assets/logo.png" alt="Node Version Manager logo" width="128" />
+</p>
+
 # NodeVersions
 Phần mềm quản lý version Node & JDK (Windows / macOS) — kèm giám sát port và tự động cập nhật.
+
+## Giao diện
+
+| Quản lý version đã cài | Cài version mới |
+|:---:|:---:|
+| ![Tab Installed — danh sách version Node đã cài, chuyển đổi 1 click](assets/screenshots/installed-node.png) | ![Tab Install New — danh sách version Node kèm nhãn LTS](assets/screenshots/install-new.png) |
+
+| Giám sát Ports | Settings / Auto-update |
+|:---:|:---:|
+| ![Tab Ports — các cổng đang lắng nghe theo process Node/Java, kill nhanh](assets/screenshots/ports.png) | ![Tab Settings — cấu hình shell PATH và kiểm tra cập nhật](assets/screenshots/settings.png) |
+
+<p align="center">
+  <img src="assets/screenshots/installed-jdk.png" alt="Chế độ JDK Version Manager — quản lý các bản JDK đã cài" width="720" />
+  <br/><em>Cùng một app quản lý luôn cả JDK — gạt công tắc Node | Java trên header.</em>
+</p>
 
 ## Yêu cầu
 - Node.js **>= 20** (khuyến nghị 22 hoặc 24) để chạy toolchain Vite/Electron.
