@@ -46,6 +46,18 @@ body {
   flex-shrink: 0;
 }
 
+.header-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.header-logo {
+  width: 26px;
+  height: 26px;
+  display: block;
+}
+
 .header h1 {
   font-size: 16px;
   font-weight: 700;

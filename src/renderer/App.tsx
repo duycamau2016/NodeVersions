@@ -7,13 +7,14 @@ import { PortsTab } from './components/PortsTab'
 import { UpdateBanner } from './components/UpdateBanner'
 import { UpdateSection } from './components/UpdateSection'
 import { ToastContainer, type Toast } from './components/Toast'
+import logo from './assets/logo.svg'
 
 type Tool = 'node' | 'java'
 type Tab = 'installed' | 'install' | 'ports' | 'settings'
 
 const TOOLS: Record<Tool, { title: string; noun: string; source: string }> = {
-  node: { title: '⬡ Node Version Manager', noun: 'Node', source: 'nodejs.org' },
-  java: { title: '☕ JDK Version Manager', noun: 'JDK', source: 'Adoptium' },
+  node: { title: 'Node Version Manager', noun: 'Node', source: 'nodejs.org' },
+  java: { title: 'JDK Version Manager', noun: 'JDK', source: 'Adoptium' },
 }
 
 export default function App() {
@@ -46,7 +47,10 @@ export default function App() {
   return (
     <div className="app">
       <header className="header">
-        <h1>{meta.title}</h1>
+        <div className="header-brand">
+          <img src={logo} alt="" className="header-logo" />
+          <h1>{meta.title}</h1>
+        </div>
         <div className="header-right">
           <div className="tool-switch">
             <button

@@ -56,7 +56,8 @@ export class PortManager {
     } catch (err: any) {
       if (err?.code === 'ESRCH') return { success: true } // already gone
       if (err?.code === 'EPERM') {
-        return { success: false, error: `Permission denied killing PID ${pid} (try running as administrator).` }
+        const hint = IS_WIN ? 'try running as administrator' : 'the process belongs to another user'
+        return { success: false, error: `Permission denied killing PID ${pid} (${hint}).` }
       }
       return { success: false, error: err?.message ?? `Failed to kill PID ${pid}` }
     }
