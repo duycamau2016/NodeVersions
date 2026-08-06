@@ -1,0 +1,18 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "lib": ["ES2022"],
+    "ignoreDeprecations": "6.0",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": ["node", "vscode"]
+  },
+  // Host code only. The webview bundle is built by Vite (see vite.config.ts) and
+  // pulls in ../src/renderer, which has its own pre-existing tsconfig.
+  "include": ["src/**/*.ts", "../src/main/nodeManager.ts", "../src/main/jdkManager.ts", "../src/main/portManager.ts"],
+  "exclude": ["node_modules", "dist", "webview"]
+}

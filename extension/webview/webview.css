@@ -1,0 +1,25 @@
+/* Webview-only adjustments layered on top of src/renderer/index.css.
+   Kept in this file (not in the shared stylesheet) so the Electron app is
+   untouched. */
+
+/* VS Code injects padding and its own font on the webview body. */
+body {
+  padding: 0;
+  font-family: var(--vscode-font-family, 'Segoe UI', system-ui, sans-serif);
+}
+
+/* The webview iframe is already sized by the panel; 100vh is correct here, but
+   VS Code can show a horizontal scrollbar without this. */
+html,
+body,
+#root {
+  width: 100%;
+  overflow: hidden;
+}
+
+/* The app ships a fixed dark palette. Keep text selection readable against it
+   regardless of the active VS Code theme. */
+::selection {
+  background: var(--accent-dim);
+  color: var(--text);
+}

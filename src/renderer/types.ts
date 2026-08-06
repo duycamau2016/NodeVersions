@@ -86,5 +86,11 @@ declare global {
     portvm: PortApi
     updatevm: UpdateApi
     platform: PlatformApi
+    /**
+     * Set to 'vscode' by the VS Code extension's webview bridge; undefined in
+     * Electron. Used to hide the self-update UI, which the Marketplace owns.
+     * See extension/webview/bridge.ts.
+     */
+    __NVM_HOST__?: 'vscode'
   }
 }

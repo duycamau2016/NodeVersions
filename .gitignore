@@ -1,6 +1,12 @@
 node_modules/
 *.log
 
+# VS Code extension build output (extension/node_modules is covered above)
+extension/dist/
+extension/*.vsix
+# copied from build/icon.png by extension/build.js
+extension/icon.png
+
 # Electron-builder output — chỉ giữ file installer .exe, bỏ qua phần nặng/phụ trợ
 # (win-unpacked ~216MB và portable .zip ~137MB vượt giới hạn 100MB/file của GitHub)
 release/win-unpacked/

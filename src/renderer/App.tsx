@@ -17,6 +17,10 @@ const TOOLS: Record<Tool, { title: string; noun: string; source: string }> = {
   java: { title: 'JDK Version Manager', noun: 'JDK', source: 'Adoptium' },
 }
 
+// In the VS Code extension the Marketplace handles updates, so the self-update
+// UI is hidden there. Undefined in Electron → unchanged behaviour.
+const IS_VSCODE = window.__NVM_HOST__ === 'vscode'
+
 export default function App() {
   const [tool, setTool] = useState<Tool>('node')
   const [tab, setTab] = useState<Tab>('installed')
@@ -72,7 +76,7 @@ export default function App() {
         </div>
       </header>
 
-      <UpdateBanner />
+      {!IS_VSCODE && <UpdateBanner />}
 
       <nav className="tabs">
         <button className={`tab ${tab === 'installed' ? 'active' : ''}`} onClick={() => setTab('installed')}>
@@ -107,7 +111,7 @@ export default function App() {
         {tab === 'settings' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
             {tool === 'node' ? <SettingsTab /> : <JdkSettingsTab />}
-            <UpdateSection />
+            {!IS_VSCODE && <UpdateSection />}
           </div>
         )}
       </main>

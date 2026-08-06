@@ -1,0 +1,15 @@
+<!-- Activity bar icon. Must be a single-colour SVG: VS Code recolours it for the
+     active/inactive and light/dark states, so any gradient or hard-coded palette
+     (like build/icon.svg) would fight the theme. Hexagon = Node, the inner bars
+     = stacked versions. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24">
+  <path
+    fill="none"
+    stroke="currentColor"
+    stroke-width="1.6"
+    stroke-linejoin="round"
+    d="M12 2.4 20.3 7v10L12 21.6 3.7 17V7z" />
+  <path
+    fill="currentColor"
+    d="M8.2 9.1h7.6v1.7H8.2zM8.2 12.3h7.6V14H8.2zM8.2 15.5h4.6v1.7H8.2z" />
+</svg>

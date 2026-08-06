@@ -1,0 +1,212 @@
+{
+  "name": "nodeversions",
+  "displayName": "Node & JDK Version Manager",
+  "description": "Install, switch and manage Node.js and JDK versions without leaving VS Code — plus a listening-port monitor.",
+  "version": "1.0.0",
+  "publisher": "duycamau2016",
+  "license": "ISC",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/duycamau2016/NodeVersions.git"
+  },
+  "bugs": {
+    "url": "https://github.com/duycamau2016/NodeVersions/issues"
+  },
+  "homepage": "https://github.com/duycamau2016/NodeVersions#readme",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "node",
+    "nvm",
+    "jdk",
+    "java",
+    "version manager",
+    "port"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "nodeversions.openPanel",
+        "title": "Open Panel",
+        "category": "NodeVersions",
+        "icon": "$(window)"
+      },
+      {
+        "command": "nodeversions.switchNode",
+        "title": "Switch Node Version",
+        "category": "NodeVersions"
+      },
+      {
+        "command": "nodeversions.switchJdk",
+        "title": "Switch JDK Version",
+        "category": "NodeVersions"
+      },
+      {
+        "command": "nodeversions.listPorts",
+        "title": "List Listening Ports",
+        "category": "NodeVersions"
+      },
+      {
+        "command": "nodeversions.refresh",
+        "title": "Refresh Active Versions",
+        "category": "NodeVersions"
+      },
+      {
+        "command": "nodeversions.refreshViews",
+        "title": "Refresh",
+        "category": "NodeVersions",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "nodeversions.activateVersion",
+        "title": "Use This Version",
+        "category": "NodeVersions",
+        "icon": "$(check)"
+      },
+      {
+        "command": "nodeversions.uninstallVersion",
+        "title": "Uninstall",
+        "category": "NodeVersions",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "nodeversions.killPort",
+        "title": "Kill Process",
+        "category": "NodeVersions",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "nodeversions.installVersion",
+        "title": "Install This Version",
+        "category": "NodeVersions",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "nodeversions.refreshRemote",
+        "title": "Reload Available Releases",
+        "category": "NodeVersions",
+        "icon": "$(refresh)"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "nodeversions",
+          "title": "Node & JDK",
+          "icon": "resources/activitybar.svg"
+        }
+      ]
+    },
+    "views": {
+      "nodeversions": [
+        {
+          "id": "nodeversions.versions",
+          "name": "Versions"
+        },
+        {
+          "id": "nodeversions.install",
+          "name": "Install New"
+        },
+        {
+          "id": "nodeversions.ports",
+          "name": "Listening Ports"
+        }
+      ]
+    },
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "nodeversions.activateVersion",
+          "when": "false"
+        },
+        {
+          "command": "nodeversions.uninstallVersion",
+          "when": "false"
+        },
+        {
+          "command": "nodeversions.killPort",
+          "when": "false"
+        },
+        {
+          "command": "nodeversions.installVersion",
+          "when": "false"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "nodeversions.openPanel",
+          "when": "view == nodeversions.versions",
+          "group": "navigation@1"
+        },
+        {
+          "command": "nodeversions.refreshViews",
+          "when": "view == nodeversions.versions || view == nodeversions.ports",
+          "group": "navigation@2"
+        },
+        {
+          "command": "nodeversions.refreshRemote",
+          "when": "view == nodeversions.install",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "nodeversions.uninstallVersion",
+          "when": "view == nodeversions.versions && viewItem == nvmVersion-removable",
+          "group": "inline"
+        },
+        {
+          "command": "nodeversions.installVersion",
+          "when": "view == nodeversions.install && viewItem == nvmRemote",
+          "group": "inline"
+        },
+        {
+          "command": "nodeversions.killPort",
+          "when": "view == nodeversions.ports && viewItem == nvmPort",
+          "group": "inline"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Node & JDK Version Manager",
+      "properties": {
+        "nodeversions.autoUpdateTerminalEnv": {
+          "type": "boolean",
+          "default": true,
+          "description": "Prepend the active Node/JDK to PATH (and set JAVA_HOME) for newly opened integrated terminals. Existing terminals are not affected."
+        },
+        "nodeversions.showStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the active Node/JDK version in the status bar."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node build.js",
+    "watch": "node build.js --watch",
+    "typecheck": "tsc -p ./ --noEmit",
+    "typecheck:webview": "tsc -p tsconfig.webview.json --noEmit",
+    "package": "node build.js && vsce package --no-dependencies",
+    "publish": "node build.js && vsce publish --no-dependencies"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.9.2",
+    "typescript": "^6.0.3"
+  }
+}

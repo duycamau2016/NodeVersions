@@ -40,7 +40,7 @@ export function InstalledTab({ api, noun, refreshKey, onRefresh, addToast }: Pro
     const res = await api.uninstall(v.version)
     setBusyPath(null)
     if (res.success) {
-      addToast(`${version} uninstalled`, 'success')
+      addToast(`${v.version} uninstalled`, 'success')
       onRefresh()
     } else {
       addToast(res.error ?? 'Failed to uninstall', 'error')

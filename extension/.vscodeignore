@@ -1,0 +1,14 @@
+# Everything the VSIX must NOT carry. Source is bundled into dist/ by build.js.
+.vscode/**
+node_modules/**
+src/**
+webview/**
+build.js
+vite.config.ts
+tsconfig*.json
+**/*.map
+**/.DS_Store
+
+# Vite emits this as its entry artefact, but panel.ts generates the real HTML at
+# runtime (it needs a per-load nonce and asWebviewUri paths).
+dist/webview/index.html

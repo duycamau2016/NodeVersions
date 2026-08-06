@@ -1,0 +1,25 @@
+{
+  // Typecheck-only config for the webview half. Vite/esbuild do not typecheck,
+  // so without this the bridge and the shared React sources are never verified.
+  // Note: ../src/renderer carries pre-existing errors that predate the
+  // extension — see docs/vscode-extension-plan.md.
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "ignoreDeprecations": "6.0",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "strict": true,
+    "jsx": "react-jsx",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "types": [],
+    "baseUrl": "..",
+    "paths": {
+      "@/*": ["src/renderer/*"]
+    }
+  },
+  "include": ["webview/**/*", "../src/renderer/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
