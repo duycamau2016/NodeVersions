@@ -10,6 +10,7 @@ const https_1 = __importDefault(require("https"));
 const child_process_1 = require("child_process");
 const os_1 = __importDefault(require("os"));
 const util_1 = require("util");
+const winShell_1 = require("./winShell");
 const execAsync = (0, util_1.promisify)(child_process_1.exec);
 const IS_WIN = process.platform === 'win32';
 /** Shell profile edited on macOS/Linux to persist PATH (zsh is the macOS default). */
@@ -347,7 +348,7 @@ class NodeManager {
         // macOS/Linux: PATH is configured via the shell profile (same as setupProfile).
         return this.setupProfile();
     }
-    /** Check if the shell profile already has the nodevm prepend line */
+    /** Check if PowerShell profile + CMD AutoRun both prepend the active Node */
     isProfileConfigured() {
         if (IS_WIN) {
             try {
@@ -355,7 +356,8 @@ class NodeManager {
                 if (!fs_1.default.existsSync(profilePath))
                     return false;
                 const content = fs_1.default.readFileSync(profilePath, 'utf8');
-                return content.includes('.nodevm\\current');
+                const psOk = content.includes('.nodevm\\current');
+                return psOk && (0, winShell_1.isWinCmdHookConfigured)('nodevm');
             }
             catch {
                 return false;
@@ -363,7 +365,11 @@ class NodeManager {
         }
         return this._profileHasMarker();
     }
-    /** Inject a PATH prepend into the shell profile so every new terminal picks up the active version */
+    /**
+     * Inject PATH prepends so every new terminal picks up the active version.
+     * Windows: PowerShell $PROFILE + CMD AutoRun (System PATH beats User PATH).
+     * macOS/Linux: ~/.zshrc.
+     */
     setupProfile() {
         if (IS_WIN) {
             try {
@@ -373,14 +379,16 @@ class NodeManager {
                 const line = `\n# NodeVM — prepend active version to PATH\n$env:Path = "$env:USERPROFILE\\.nodevm\\current;$env:Path"\n`;
                 if (fs_1.default.existsSync(profilePath)) {
                     const existing = fs_1.default.readFileSync(profilePath, 'utf8');
-                    if (existing.includes('.nodevm\\current'))
-                        return { success: true };
-                    fs_1.default.appendFileSync(profilePath, line, 'utf8');
+                    if (!existing.includes('.nodevm\\current')) {
+                        fs_1.default.appendFileSync(profilePath, line, 'utf8');
+                    }
                 }
                 else {
                     fs_1.default.writeFileSync(profilePath, line, 'utf8');
                 }
                 (0, child_process_1.execSync)('powershell -Command "Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force"', { shell: 'cmd.exe' });
+                // CMD does not read $PROFILE — wire HKCU AutoRun instead.
+                (0, winShell_1.ensureWinCmdHook)('nodevm');
                 return { success: true };
             }
             catch (e) {

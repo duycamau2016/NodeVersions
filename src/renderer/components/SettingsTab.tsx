@@ -98,22 +98,22 @@ export function SettingsTab() {
           )}
       </div>
 
-      {/* Step 2: PowerShell profile (fixes Machine PATH priority issue) */}
+      {/* Step 2: Shell startup (fixes Machine PATH priority for PowerShell + CMD) */}
       <div className="path-hint" style={{ borderColor: profileOk ? 'var(--accent)' : 'var(--warning)' }}>
-        <strong style={{ color: 'var(--text)' }}>Step 2 — PowerShell Profile <span style={{ color: 'var(--warning)', fontWeight: 400, fontSize: '11px' }}>(required)</span></strong>
+        <strong style={{ color: 'var(--text)' }}>Step 2 — Shell startup <span style={{ color: 'var(--warning)', fontWeight: 400, fontSize: '11px' }}>(required)</span></strong>
         <br /><br />
         {profileOk === null && <span style={{ color: 'var(--text-muted)' }}>Checking...</span>}
         {profileOk === true
-          ? <span style={{ color: 'var(--accent)' }}>✓ Done</span>
+          ? <span style={{ color: 'var(--accent)' }}>✓ Done (PowerShell + CMD)</span>
           : profileOk === false && (
             <>
               <p style={{ color: 'var(--text-muted)', fontSize: '12px', marginBottom: '10px' }}>
                 Windows puts System PATH before User PATH, so <code>C:\Program Files\nodejs</code> always wins.
-                This step injects one line into your PowerShell profile so <code>~\.nodevm\current</code>
-                is always prepended when a terminal opens — no admin needed.
+                This step prepends <code>~\.nodevm\current</code> when a terminal opens — PowerShell via
+                <code>$PROFILE</code>, CMD via AutoRun — no admin needed.
               </p>
               <button className="btn btn-primary" disabled={busy} onClick={handleSetupProfile}>
-                {busy ? 'Working...' : 'Configure PowerShell Profile'}
+                {busy ? 'Working...' : 'Configure PowerShell + CMD'}
               </button>
             </>
           )}

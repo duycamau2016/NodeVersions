@@ -103,22 +103,22 @@ export function JdkSettingsTab() {
           )}
       </div>
 
-      {/* Step 2: PowerShell profile (fixes Machine PATH priority issue) */}
+      {/* Step 2: Shell startup (fixes Machine PATH priority for PowerShell + CMD) */}
       <div className="path-hint" style={{ borderColor: profileOk ? 'var(--accent)' : 'var(--warning)' }}>
-        <strong style={{ color: 'var(--text)' }}>Step 2 — PowerShell Profile <span style={{ color: 'var(--warning)', fontWeight: 400, fontSize: '11px' }}>(required)</span></strong>
+        <strong style={{ color: 'var(--text)' }}>Step 2 — Shell startup <span style={{ color: 'var(--warning)', fontWeight: 400, fontSize: '11px' }}>(required)</span></strong>
         <br /><br />
         {profileOk === null && <span style={{ color: 'var(--text-muted)' }}>Checking...</span>}
         {profileOk === true
-          ? <span style={{ color: 'var(--accent)' }}>✓ Done</span>
+          ? <span style={{ color: 'var(--accent)' }}>✓ Done (PowerShell + CMD)</span>
           : profileOk === false && (
             <>
               <p style={{ color: 'var(--text-muted)', fontSize: '12px', marginBottom: '10px' }}>
                 Windows puts System PATH before User PATH, so an existing Java install always wins.
-                This step injects two lines into your PowerShell profile so <code>JAVA_HOME</code> and
-                <code>~\.jdkvm\current\bin</code> are always set when a terminal opens — no admin needed.
+                This step sets <code>JAVA_HOME</code> and prepends <code>~\.jdkvm\current\bin</code> when a
+                terminal opens — PowerShell via <code>$PROFILE</code>, CMD via AutoRun — no admin needed.
               </p>
               <button className="btn btn-primary" disabled={busy} onClick={handleSetupProfile}>
-                {busy ? 'Working...' : 'Configure PowerShell Profile'}
+                {busy ? 'Working...' : 'Configure PowerShell + CMD'}
               </button>
             </>
           )}

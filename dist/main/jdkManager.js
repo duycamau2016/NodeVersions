@@ -10,6 +10,7 @@ const https_1 = __importDefault(require("https"));
 const child_process_1 = require("child_process");
 const os_1 = __importDefault(require("os"));
 const util_1 = require("util");
+const winShell_1 = require("./winShell");
 const execAsync = (0, util_1.promisify)(child_process_1.exec);
 const IS_WIN = process.platform === 'win32';
 /** Shell profile edited on macOS/Linux to persist JAVA_HOME + PATH (zsh is the macOS default). */
@@ -267,7 +268,7 @@ class JdkManager {
         // macOS/Linux: JAVA_HOME + PATH are configured via the shell profile.
         return this.setupProfile();
     }
-    /** Check if the shell profile already has the jdkvm lines */
+    /** Check if PowerShell profile + CMD AutoRun both set JAVA_HOME / PATH */
     isProfileConfigured() {
         if (IS_WIN) {
             try {
@@ -275,7 +276,8 @@ class JdkManager {
                 if (!fs_1.default.existsSync(profilePath))
                     return false;
                 const content = fs_1.default.readFileSync(profilePath, 'utf8');
-                return content.includes('.jdkvm\\current');
+                const psOk = content.includes('.jdkvm\\current');
+                return psOk && (0, winShell_1.isWinCmdHookConfigured)('jdkvm');
             }
             catch {
                 return false;
@@ -283,7 +285,11 @@ class JdkManager {
         }
         return this._profileHasMarker();
     }
-    /** Inject JAVA_HOME + PATH prepend into the shell profile so every new terminal picks up the active JDK */
+    /**
+     * Inject JAVA_HOME + PATH so every new terminal picks up the active JDK.
+     * Windows: PowerShell $PROFILE + CMD AutoRun (System PATH beats User PATH).
+     * macOS/Linux: ~/.zshrc.
+     */
     setupProfile() {
         if (IS_WIN) {
             try {
@@ -295,9 +301,9 @@ class JdkManager {
                     `$env:Path = "$env:JAVA_HOME\\bin;$env:Path"\n`;
                 if (fs_1.default.existsSync(profilePath)) {
                     const existing = fs_1.default.readFileSync(profilePath, 'utf8');
-                    if (existing.includes('.jdkvm\\current'))
-                        return { success: true };
-                    fs_1.default.appendFileSync(profilePath, block, 'utf8');
+                    if (!existing.includes('.jdkvm\\current')) {
+                        fs_1.default.appendFileSync(profilePath, block, 'utf8');
+                    }
                 }
                 else {
                     fs_1.default.writeFileSync(profilePath, block, 'utf8');
@@ -306,6 +312,8 @@ class JdkManager {
                 if (policy === 'Undefined' || policy === 'Restricted') {
                     (0, child_process_1.execSync)('powershell -Command "Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force"', { shell: 'cmd.exe' });
                 }
+                // CMD does not read $PROFILE — wire HKCU AutoRun instead.
+                (0, winShell_1.ensureWinCmdHook)('jdkvm');
                 return { success: true };
             }
             catch (e) {

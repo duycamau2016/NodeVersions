@@ -1,9 +1,9 @@
 {
   "name": "nodeversions",
-  "displayName": "Node & JDK Version Manager",
+  "displayName": "Node Switcher",
   "description": "Install, switch and manage Node.js and JDK versions without leaving VS Code — plus a listening-port monitor.",
-  "version": "1.0.0",
-  "publisher": "duycamau2016",
+  "version": "1.1.0",
+  "publisher": "yudaliot",
   "license": "ISC",
   "icon": "icon.png",
   "repository": {
@@ -45,13 +45,29 @@
       },
       {
         "command": "nodeversions.switchNode",
-        "title": "Switch Node Version",
+        "title": "Pin Node Version to Workspace",
         "category": "NodeVersions"
       },
       {
         "command": "nodeversions.switchJdk",
-        "title": "Switch JDK Version",
+        "title": "Pin JDK Version to Workspace",
         "category": "NodeVersions"
+      },
+      {
+        "command": "nodeversions.setGlobalNode",
+        "title": "Set Global Default Node Version",
+        "category": "NodeVersions"
+      },
+      {
+        "command": "nodeversions.setGlobalJdk",
+        "title": "Set Global Default JDK Version",
+        "category": "NodeVersions"
+      },
+      {
+        "command": "nodeversions.unpinWorkspace",
+        "title": "Unpin Workspace (Use Global Defaults)",
+        "category": "NodeVersions",
+        "icon": "$(circle-slash)"
       },
       {
         "command": "nodeversions.listPorts",
@@ -70,10 +86,22 @@
         "icon": "$(refresh)"
       },
       {
-        "command": "nodeversions.activateVersion",
-        "title": "Use This Version",
+        "command": "nodeversions.pinVersion",
+        "title": "Pin to This Workspace",
         "category": "NodeVersions",
-        "icon": "$(check)"
+        "icon": "$(pin)"
+      },
+      {
+        "command": "nodeversions.unpinVersion",
+        "title": "Unpin (Use Global Default)",
+        "category": "NodeVersions",
+        "icon": "$(circle-slash)"
+      },
+      {
+        "command": "nodeversions.setGlobalVersion",
+        "title": "Set as Global Default",
+        "category": "NodeVersions",
+        "icon": "$(globe)"
       },
       {
         "command": "nodeversions.uninstallVersion",
@@ -128,7 +156,15 @@
     "menus": {
       "commandPalette": [
         {
-          "command": "nodeversions.activateVersion",
+          "command": "nodeversions.pinVersion",
+          "when": "false"
+        },
+        {
+          "command": "nodeversions.unpinVersion",
+          "when": "false"
+        },
+        {
+          "command": "nodeversions.setGlobalVersion",
           "when": "false"
         },
         {
@@ -151,6 +187,11 @@
           "group": "navigation@1"
         },
         {
+          "command": "nodeversions.unpinWorkspace",
+          "when": "view == nodeversions.versions",
+          "group": "1_pins@1"
+        },
+        {
           "command": "nodeversions.refreshViews",
           "when": "view == nodeversions.versions || view == nodeversions.ports",
           "group": "navigation@2"
@@ -163,9 +204,29 @@
       ],
       "view/item/context": [
         {
+          "command": "nodeversions.pinVersion",
+          "when": "view == nodeversions.versions && viewItem =~ /^nvmVersion-inactive/",
+          "group": "inline@1"
+        },
+        {
+          "command": "nodeversions.unpinVersion",
+          "when": "view == nodeversions.versions && viewItem =~ /^nvmTool-.*-pinned$/",
+          "group": "inline@1"
+        },
+        {
+          "command": "nodeversions.pinVersion",
+          "when": "view == nodeversions.versions && viewItem =~ /^nvmVersion-active/",
+          "group": "1_switch@1"
+        },
+        {
+          "command": "nodeversions.setGlobalVersion",
+          "when": "view == nodeversions.versions && viewItem =~ /^nvmVersion-/",
+          "group": "1_switch@2"
+        },
+        {
           "command": "nodeversions.uninstallVersion",
-          "when": "view == nodeversions.versions && viewItem == nvmVersion-removable",
-          "group": "inline"
+          "when": "view == nodeversions.versions && viewItem =~ /removable$/",
+          "group": "inline@2"
         },
         {
           "command": "nodeversions.installVersion",
@@ -185,7 +246,27 @@
         "nodeversions.autoUpdateTerminalEnv": {
           "type": "boolean",
           "default": true,
-          "description": "Prepend the active Node/JDK to PATH (and set JAVA_HOME) for newly opened integrated terminals. Existing terminals are not affected."
+          "description": "Prepend the active Node/JDK to PATH (and set JAVA_HOME) for newly opened integrated terminals. Existing terminals are not affected. This is what makes a workspace pin take effect — turning it off leaves every terminal on the global default."
+        },
+        "nodeversions.relaunchTerminalsOnChange": {
+          "type": "string",
+          "enum": [
+            "ask",
+            "always",
+            "never"
+          ],
+          "enumDescriptions": [
+            "Offer to relaunch open terminals after the version changes.",
+            "Relaunch open terminals automatically.",
+            "Leave open terminals alone; only new ones get the new version."
+          ],
+          "default": "ask",
+          "markdownDescription": "A shell cannot have its `PATH` changed once it is running, so an open terminal keeps the old version until it is relaunched. Relaunching stops anything running in that terminal. VS Code already relaunches terminals you have not typed in — see `#terminal.integrated.environmentChangesRelaunch#`."
+        },
+        "nodeversions.useVersionFiles": {
+          "type": "boolean",
+          "default": true,
+          "description": "Pin the version declared by a .nvmrc / .node-version / .java-version file in the workspace root. A pin set through the UI overrides the file."
         },
         "nodeversions.showStatusBar": {
           "type": "boolean",

@@ -8,23 +8,75 @@
 
 ## Features
 
-### Switch versions from the Command Palette
+### Every repo keeps its own version
 
-`NodeVersions: Switch Node Version` · `NodeVersions: Switch JDK Version` — a
-Quick Pick over everything installed, including Node/JDK installs already on the
-machine that this extension did not put there.
+Two projects open side by side, one on Node 18 and one on Node 22 — each VS Code
+window keeps its own. Picking a version **pins** it to that workspace; the other
+window is untouched.
+
+`NodeVersions: Pin Node Version to Workspace` ·
+`NodeVersions: Pin JDK Version to Workspace`, or click a version in the
+**Versions** view.
+
+A pin resolves in this order:
+
+1. what you picked in this window (stored in VS Code's workspace state)
+2. a `.nvmrc` / `.node-version` / `.java-version` file in the workspace root —
+   commit it and the whole team gets the same version
+   (disable with `nodeversions.useVersionFiles`)
+3. the global default, i.e. the pre-pinning behaviour
+
+`NodeVersions: Unpin Workspace (Use Global Defaults)` clears a pin. A pinned
+version that is not installed is reported in the status bar and the extension
+adds nothing to `PATH`, rather than silently falling back to the global default.
+(If you previously ran the machine-wide setup in the **Settings** tab, the shell
+still inherits the system `PATH` / `JAVA_HOME` — install the missing version to
+get out of that state.)
+
+Version files understand `20`, `v20.11.0`, `lts/*`-free plain versions and the
+`node` / `latest` aliases. Codenames such as `lts/hydrogen` are **not** resolved.
+
+### Global default vs. workspace pin
+
+The global default is the shared `~/.nodevm/current` link that every window,
+every shell and the desktop app follow. Right-click a version →
+**Set as Global Default** (or `NodeVersions: Set Global Default Node Version`)
+to change it; the extension confirms first, because it reaches outside this
+window.
+
+Workspaces with their own pin ignore the global default entirely.
 
 ### New terminals get the version you picked
 
-Switching a version prepends the active install to `PATH` (and sets `JAVA_HOME`)
-for **newly opened** integrated terminals. Terminals that are already open keep
-the environment they were started with — open a new one after switching.
+A pin prepends the install to `PATH` (and sets `JAVA_HOME`) for **newly opened**
+integrated terminals.
 
-Turn it off with `nodeversions.autoUpdateTerminalEnv`.
+A shell cannot have its `PATH` changed once it is running, so a terminal that is
+already open keeps the old version until it is relaunched. VS Code relaunches
+terminals you have not typed in by itself; for the rest the extension offers to
+relaunch them after a version change — relaunching stops whatever is running in
+them, so it asks first. Set `nodeversions.relaunchTerminalsOnChange` to `always`
+or `never` to skip the prompt.
+
+Scope worth knowing:
+
+- A pin covers integrated terminals of this window. External shells and
+  processes launched outside VS Code follow the **global default**.
+- If you ran the **Settings** tab's shell-startup setup, your PowerShell profile
+  (or `~/.zshrc`) prepends the global `current` link *after* VS Code builds the
+  terminal environment. The extension re-applies the pin through VS Code's
+  terminal shell integration, which runs after the profile — so the pin still
+  wins. With `terminal.integrated.shellIntegration.enabled` turned **off** the
+  profile wins instead, and the extension warns you about it.
+- The pin is window-wide, not per-folder: in a multi-root workspace all folders
+  share one pin.
+- Turn the whole mechanism off with `nodeversions.autoUpdateTerminalEnv` — pins
+  then have nothing to act on.
 
 ### The full panel
 
-`NodeVersions: Open Panel`, or click the version in the status bar.
+`NodeVersions: Open Panel`, or click the version in the status bar. Switching a
+version here pins it to the workspace, same as the tree view.
 
 | Installed | Install new |
 |---|---|
@@ -48,16 +100,18 @@ port, and kills one after a confirmation.
 | | Location |
 |---|---|
 | Node versions | `~/.nodevm/versions/` |
-| Active Node | `~/.nodevm/current` (junction on Windows, symlink elsewhere) |
+| Global default Node | `~/.nodevm/current` (junction on Windows, symlink elsewhere) |
 | JDK versions | `~/.jdkvm/versions/` |
-| Active JDK | `~/.jdkvm/current` |
+| Global default JDK | `~/.jdkvm/current` |
+| Workspace pins | VS Code workspace state, or a version file in the repo |
 
 Node comes from **nodejs.org**, JDKs from **Eclipse Temurin (Adoptium)**.
 
 ## Machine-wide PATH changes
 
 The **Settings** tab can register the manager in your *user* `PATH` /
-`JAVA_HOME` (Windows registry) or in `~/.zshrc` (macOS/Linux), so shells outside
+`JAVA_HOME` (Windows registry) and shell startup (PowerShell `$PROFILE` + CMD
+`AutoRun` on Windows, or `~/.zshrc` on macOS/Linux), so shells outside
 VS Code also see the active version.
 
 That reaches outside the editor and persists after VS Code closes, so the
@@ -69,6 +123,8 @@ integrated terminal — that works out of the box.
 | Setting | Default | |
 |---|---|---|
 | `nodeversions.autoUpdateTerminalEnv` | `true` | Apply the active Node/JDK to newly opened terminals |
+| `nodeversions.useVersionFiles` | `true` | Honour `.nvmrc` / `.node-version` / `.java-version` in the workspace root |
+| `nodeversions.relaunchTerminalsOnChange` | `ask` | Relaunch already-open terminals after a version change (`ask` / `always` / `never`) |
 | `nodeversions.showStatusBar` | `true` | Show the active versions in the status bar |
 
 ## Requirements

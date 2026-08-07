@@ -1,22 +1,8 @@
 import * as vscode from 'vscode'
 import * as path from 'path'
-import { nodeManager, jdkManager, portManager } from './managers'
-
-type Vm = typeof nodeManager | typeof jdkManager
-
-interface ToolMeta {
-  key: 'node' | 'java'
-  noun: string
-  vm: Vm
-  icon: string
-  /** Where releases are downloaded from — shown in the Install New view. */
-  source: string
-}
-
-const TOOLS: ToolMeta[] = [
-  { key: 'node', noun: 'Node', vm: nodeManager, icon: 'symbol-event', source: 'nodejs.org' },
-  { key: 'java', noun: 'JDK', vm: jdkManager, icon: 'coffee', source: 'Adoptium' },
-]
+import { portManager, TOOLS, ToolMeta } from './managers'
+import { describeSource, listWithEffective, resolveTool, setManualPin } from './pinStore'
+import { registerCommand, registerDisposable } from './register'
 
 // ── Versions view ─────────────────────────────────────────────
 
@@ -28,7 +14,10 @@ type VersionNode =
       tool: ToolMeta
       version: string
       path: string
+      /** The version this workspace actually uses. */
       isCurrent: boolean
+      /** The version the shared ~/.nodevm/current junction points at. */
+      isGlobal: boolean
       external: boolean
     }
 
@@ -46,9 +35,9 @@ export class VersionsProvider implements vscode.TreeDataProvider<VersionNode> {
 
     // listInstalled() touches the filesystem; a failure here must not blank the
     // whole view.
-    let installed: ReturnType<Vm['listInstalled']>
+    let installed: ReturnType<typeof listWithEffective>
     try {
-      installed = node.tool.vm.listInstalled()
+      installed = listWithEffective(node.tool)
     } catch {
       return []
     }
@@ -59,44 +48,88 @@ export class VersionsProvider implements vscode.TreeDataProvider<VersionNode> {
       version: v.version,
       path: v.path,
       isCurrent: v.isCurrent,
+      isGlobal: v.isGlobal,
       external: v.external === true,
     }))
   }
 
   getTreeItem(node: VersionNode): vscode.TreeItem {
-    if (node.kind === 'tool') {
-      const current = safeCurrent(node.tool.vm)
-      const item = new vscode.TreeItem(
-        node.tool.noun,
-        vscode.TreeItemCollapsibleState.Expanded,
-      )
-      item.description = current ?? 'none active'
-      item.iconPath = new vscode.ThemeIcon(node.tool.icon)
-      item.contextValue = `nvmTool-${node.tool.key}`
-      return item
-    }
+    if (node.kind === 'tool') return this.toolItem(node.tool)
+    return this.versionItem(node)
+  }
 
-    const item = new vscode.TreeItem(node.version, vscode.TreeItemCollapsibleState.None)
-    item.description = node.external ? 'system' : undefined
+  private toolItem(tool: ToolMeta): vscode.TreeItem {
+    const resolved = resolveTool(tool)
+    const item = new vscode.TreeItem(tool.noun, vscode.TreeItemCollapsibleState.Expanded)
+
+    item.description = resolved.unresolved
+      ? `${resolved.unresolved} — not installed`
+      : `${resolved.version ?? 'none'} · ${describeSource(resolved)}`
+    item.iconPath = new vscode.ThemeIcon(
+      resolved.unresolved ? 'warning' : tool.icon,
+      resolved.unresolved ? new vscode.ThemeColor('charts.yellow') : undefined,
+    )
     item.tooltip = new vscode.MarkdownString(
-      [`**${node.version}**`, node.path, node.external ? '_Installed outside this extension._' : '']
+      [
+        `**${tool.noun}** — ${describeSource(resolved)}`,
+        resolved.unresolved
+          ? `\`${resolved.unresolved}\` is requested but not installed, so nothing is added to PATH.`
+          : resolved.dir ?? '',
+        '_A workspace pin affects this VS Code window only._',
+      ]
         .filter(Boolean)
         .join('\n\n'),
     )
+
+    const pinned = resolved.source === 'workspace' || resolved.unresolved
+    item.contextValue = `nvmTool-${tool.key}-${pinned ? 'pinned' : 'unpinned'}`
+    return item
+  }
+
+  private versionItem(node: Extract<VersionNode, { kind: 'version' }>): vscode.TreeItem {
+    const resolved = resolveTool(node.tool)
+    const pinnedHere = node.isCurrent && resolved.source !== 'global'
+
+    const item = new vscode.TreeItem(node.version, vscode.TreeItemCollapsibleState.None)
+    item.description = [
+      pinnedHere ? (resolved.source === 'file' ? resolved.file : 'pinned') : undefined,
+      node.isGlobal ? 'global' : undefined,
+      node.external ? 'system' : undefined,
+    ]
+      .filter(Boolean)
+      .join(' · ')
+
+    item.tooltip = new vscode.MarkdownString(
+      [
+        `**${node.version}**`,
+        node.path,
+        pinnedHere ? `_Pinned for this workspace (${describeSource(resolved)})._` : '',
+        node.isGlobal ? '_Also the machine-wide default._' : '',
+        node.external ? '_Installed outside this extension._' : '',
+      ]
+        .filter(Boolean)
+        .join('\n\n'),
+    )
+
     item.iconPath = new vscode.ThemeIcon(
-      node.isCurrent ? 'pass-filled' : 'circle-large-outline',
+      node.isCurrent ? (pinnedHere ? 'pinned' : 'pass-filled') : node.isGlobal ? 'circle-filled' : 'circle-large-outline',
       node.isCurrent ? new vscode.ThemeColor('charts.green') : undefined,
     )
 
-    // Uninstall is only offered where it can succeed: the managers refuse to
-    // remove the active version, and external installs are not ours to delete.
-    const removable = !node.external && !node.isCurrent
-    item.contextValue = `nvmVersion${removable ? '-removable' : ''}`
+    // Uninstall is only offered where it can succeed and where it would not rip
+    // the ground out from under a pin: the managers refuse to remove the global
+    // active version, and external installs are not ours to delete.
+    const removable = !node.external && !node.isGlobal && !node.isCurrent
+    item.contextValue = [
+      'nvmVersion',
+      node.isCurrent ? 'active' : 'inactive',
+      removable ? 'removable' : 'locked',
+    ].join('-')
 
     if (!node.isCurrent) {
       item.command = {
-        command: 'nodeversions.activateVersion',
-        title: `Use ${node.version}`,
+        command: 'nodeversions.pinVersion',
+        title: `Pin ${node.version} to this workspace`,
         arguments: [node],
       }
     }
@@ -272,21 +305,19 @@ export class PortsProvider implements vscode.TreeDataProvider<PortNode> {
 
 // ── Wiring ────────────────────────────────────────────────────
 
-function safeCurrent(vm: Vm): string | null {
-  try {
-    return vm.getCurrent()
-  } catch {
-    return null
-  }
-}
-
 /**
  * Where a freshly installed release landed. Both managers extract into
  * `<versionsDir>/<version>` using the exact release string, so this mirrors
  * their own destDir computation rather than re-listing the directory.
  */
-function nodeInstallPath(node: Extract<RemoteNode, { kind: 'remote' }>): string {
+function remoteInstallPath(node: Extract<RemoteNode, { kind: 'remote' }>): string {
   return path.join(node.tool.vm.versionsDir, node.version)
+}
+
+/** Tool headers carry `nvmTool-<key>-…`; recover the tool from the context value. */
+function toolFromNode(node: unknown): ToolMeta | null {
+  const tool = (node as { tool?: ToolMeta } | undefined)?.tool
+  return tool && TOOLS.includes(tool) ? tool : null
 }
 
 export function registerTreeViews(context: vscode.ExtensionContext, onChanged: () => void) {
@@ -302,115 +333,153 @@ export function registerTreeViews(context: vscode.ExtensionContext, onChanged: (
     install.refresh()
   }
 
-  context.subscriptions.push(
+  registerDisposable(context, () =>
     vscode.window.createTreeView('nodeversions.versions', { treeDataProvider: versions }),
-    vscode.window.createTreeView('nodeversions.install', { treeDataProvider: install }),
-    vscode.window.createTreeView('nodeversions.ports', { treeDataProvider: ports }),
-
-    vscode.commands.registerCommand('nodeversions.installVersion', async (node: RemoteNode) => {
-      if (!node || node.kind !== 'remote' || node.installed) return
-
-      const result = await vscode.window.withProgress(
-        {
-          location: vscode.ProgressLocation.Notification,
-          title: `Installing ${node.tool.noun} ${node.version}`,
-          cancellable: false,
-        },
-        (progress) => {
-          let last = 0
-          return node.tool.vm.install(node.version, (p: number) => {
-            // withProgress wants an increment, the managers report an absolute
-            // percentage — convert, and never report a negative step.
-            const step = Math.max(0, p - last)
-            last = p
-            progress.report({ increment: step, message: `${p}%` })
-          })
-        },
-      )
-
-      if (result.success) {
-        // The release list's "installed" badge is now stale for this tool.
-        install.invalidate()
-        onChanged()
-        const use = 'Use It Now'
-        const pick = await vscode.window.showInformationMessage(
-          `${node.tool.noun} ${node.version} installed.`,
-          use,
-        )
-        if (pick === use) {
-          await vscode.commands.executeCommand('nodeversions.activateVersion', {
-            kind: 'version',
-            tool: node.tool,
-            version: node.version,
-            path: nodeInstallPath(node),
-            isCurrent: false,
-            external: false,
-          })
-        }
-      } else {
-        vscode.window.showErrorMessage(
-          result.error ?? `Failed to install ${node.tool.noun} ${node.version}.`,
-        )
-      }
-    }),
-
-    vscode.commands.registerCommand('nodeversions.refreshRemote', () => install.invalidate()),
-
-    vscode.commands.registerCommand('nodeversions.activateVersion', (node: VersionNode) => {
-      if (!node || node.kind !== 'version') return
-      const result = node.tool.vm.use(node.path)
-      if (!result.success) {
-        vscode.window.showErrorMessage(
-          result.error ?? `Failed to switch ${node.tool.noun} version.`,
-        )
-        return
-      }
-      onChanged()
-      vscode.window.showInformationMessage(
-        `${node.tool.noun} ${node.version} is now active. Open a new terminal to pick it up.`,
-      )
-    }),
-
-    vscode.commands.registerCommand('nodeversions.uninstallVersion', async (node: VersionNode) => {
-      if (!node || node.kind !== 'version') return
-      const remove = 'Uninstall'
-      const confirm = await vscode.window.showWarningMessage(
-        `Uninstall ${node.tool.noun} ${node.version}?`,
-        { modal: true, detail: `This deletes ${node.path} from disk.` },
-        remove,
-      )
-      if (confirm !== remove) return
-
-      const result = node.tool.vm.uninstall(node.version)
-      if (result.success) {
-        onChanged()
-        vscode.window.showInformationMessage(`${node.tool.noun} ${node.version} uninstalled.`)
-      } else {
-        vscode.window.showErrorMessage(result.error ?? 'Failed to uninstall.')
-      }
-    }),
-
-    vscode.commands.registerCommand('nodeversions.killPort', async (node: PortNode) => {
-      if (!node) return
-      const kill = 'Kill Process'
-      const confirm = await vscode.window.showWarningMessage(
-        `Kill the process on port ${node.port}?`,
-        { modal: true, detail: `PID ${node.pid}. Unsaved work in that process is lost.` },
-        kill,
-      )
-      if (confirm !== kill) return
-
-      const result = await portManager.killProcess(node.pid)
-      if (result.success) {
-        vscode.window.showInformationMessage(`Killed pid ${node.pid}.`)
-        ports.refresh()
-      } else {
-        vscode.window.showErrorMessage(result.error ?? 'Failed to kill the process.')
-      }
-    }),
-
-    vscode.commands.registerCommand('nodeversions.refreshViews', refreshAll),
   )
+  registerDisposable(context, () =>
+    vscode.window.createTreeView('nodeversions.install', { treeDataProvider: install }),
+  )
+  registerDisposable(context, () =>
+    vscode.window.createTreeView('nodeversions.ports', { treeDataProvider: ports }),
+  )
+
+  registerCommand(context, 'nodeversions.installVersion', async (node: RemoteNode) => {
+    if (!node || node.kind !== 'remote' || node.installed) return
+
+    const result = await vscode.window.withProgress(
+      {
+        location: vscode.ProgressLocation.Notification,
+        title: `Installing ${node.tool.noun} ${node.version}`,
+        cancellable: false,
+      },
+      (progress) => {
+        let last = 0
+        return node.tool.vm.install(node.version, (p: number) => {
+          // withProgress wants an increment, the managers report an absolute
+          // percentage — convert, and never report a negative step.
+          const step = Math.max(0, p - last)
+          last = p
+          progress.report({ increment: step, message: `${p}%` })
+        })
+      },
+    )
+
+    if (result.success) {
+      // The release list's "installed" badge is now stale for this tool.
+      install.invalidate()
+      onChanged()
+      const use = 'Pin to This Workspace'
+      const pick = await vscode.window.showInformationMessage(
+        `${node.tool.noun} ${node.version} installed.`,
+        use,
+      )
+      if (pick === use) {
+        await vscode.commands.executeCommand('nodeversions.pinVersion', {
+          kind: 'version',
+          tool: node.tool,
+          version: node.version,
+          path: remoteInstallPath(node),
+          isCurrent: false,
+          isGlobal: false,
+          external: false,
+        })
+      }
+    } else {
+      vscode.window.showErrorMessage(
+        result.error ?? `Failed to install ${node.tool.noun} ${node.version}.`,
+      )
+    }
+  })
+
+  registerCommand(context, 'nodeversions.refreshRemote', () => install.invalidate())
+
+  // Pin — the default click action. Scoped to this window; never touches the
+  // shared junction, so a second window on another repo is unaffected.
+  registerCommand(context, 'nodeversions.pinVersion', async (node: VersionNode) => {
+    if (!node || node.kind !== 'version') return
+    await setManualPin(node.tool.key, node.version)
+    onChanged()
+    vscode.window.showInformationMessage(
+      `${node.tool.noun} ${node.version} pinned to this workspace. Open a new terminal to pick it up.`,
+    )
+  })
+
+  registerCommand(context, 'nodeversions.unpinVersion', async (node: unknown) => {
+    const tool = toolFromNode(node)
+    if (!tool) return
+    await setManualPin(tool.key, null)
+    onChanged()
+    vscode.window.showInformationMessage(
+      `${tool.noun} pin removed. This workspace follows the global default again.`,
+    )
+  })
+
+  // Global switch — kept, but demoted to an explicit context-menu action
+  // because it reaches every window and every shell on the machine.
+  registerCommand(context, 'nodeversions.setGlobalVersion', async (node: VersionNode) => {
+    if (!node || node.kind !== 'version') return
+    const proceed = 'Set Global Default'
+    const confirm = await vscode.window.showWarningMessage(
+      `Make ${node.tool.noun} ${node.version} the global default?`,
+      {
+        modal: true,
+        detail:
+          'This repoints the shared link used by every VS Code window, every shell and the desktop app. Workspaces with their own pin are unaffected.',
+      },
+      proceed,
+    )
+    if (confirm !== proceed) return
+
+    const result = node.tool.vm.use(node.path)
+    if (!result.success) {
+      vscode.window.showErrorMessage(result.error ?? `Failed to switch ${node.tool.noun} version.`)
+      return
+    }
+    onChanged()
+    vscode.window.showInformationMessage(
+      `${node.tool.noun} ${node.version} is now the global default. Open a new terminal to pick it up.`,
+    )
+  })
+
+  registerCommand(context, 'nodeversions.uninstallVersion', async (node: VersionNode) => {
+    if (!node || node.kind !== 'version') return
+    const remove = 'Uninstall'
+    const confirm = await vscode.window.showWarningMessage(
+      `Uninstall ${node.tool.noun} ${node.version}?`,
+      { modal: true, detail: `This deletes ${node.path} from disk.` },
+      remove,
+    )
+    if (confirm !== remove) return
+
+    const result = node.tool.vm.uninstall(node.version)
+    if (result.success) {
+      onChanged()
+      vscode.window.showInformationMessage(`${node.tool.noun} ${node.version} uninstalled.`)
+    } else {
+      vscode.window.showErrorMessage(result.error ?? 'Failed to uninstall.')
+    }
+  })
+
+  registerCommand(context, 'nodeversions.killPort', async (node: PortNode) => {
+    if (!node) return
+    const kill = 'Kill Process'
+    const confirm = await vscode.window.showWarningMessage(
+      `Kill the process on port ${node.port}?`,
+      { modal: true, detail: `PID ${node.pid}. Unsaved work in that process is lost.` },
+      kill,
+    )
+    if (confirm !== kill) return
+
+    const result = await portManager.killProcess(node.pid)
+    if (result.success) {
+      vscode.window.showInformationMessage(`Killed pid ${node.pid}.`)
+      ports.refresh()
+    } else {
+      vscode.window.showErrorMessage(result.error ?? 'Failed to kill the process.')
+    }
+  })
+
+  registerCommand(context, 'nodeversions.refreshViews', refreshAll)
 
   return refreshAll
 }

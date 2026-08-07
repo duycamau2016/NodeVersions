@@ -4,6 +4,7 @@ import https from 'https'
 import { execSync, exec } from 'child_process'
 import os from 'os'
 import { promisify } from 'util'
+import { ensureWinCmdHook, isWinCmdHookConfigured } from './winShell'
 
 const execAsync = promisify(exec)
 
@@ -340,7 +341,7 @@ export class JdkManager {
     return this.setupProfile()
   }
 
-  /** Check if the shell profile already has the jdkvm lines */
+  /** Check if PowerShell profile + CMD AutoRun both set JAVA_HOME / PATH */
   isProfileConfigured(): boolean {
     if (IS_WIN) {
       try {
@@ -350,7 +351,8 @@ export class JdkManager {
         ).trim()
         if (!fs.existsSync(profilePath)) return false
         const content = fs.readFileSync(profilePath, 'utf8')
-        return content.includes('.jdkvm\\current')
+        const psOk = content.includes('.jdkvm\\current')
+        return psOk && isWinCmdHookConfigured('jdkvm')
       } catch {
         return false
       }
@@ -358,7 +360,11 @@ export class JdkManager {
     return this._profileHasMarker()
   }
 
-  /** Inject JAVA_HOME + PATH prepend into the shell profile so every new terminal picks up the active JDK */
+  /**
+   * Inject JAVA_HOME + PATH so every new terminal picks up the active JDK.
+   * Windows: PowerShell $PROFILE + CMD AutoRun (System PATH beats User PATH).
+   * macOS/Linux: ~/.zshrc.
+   */
   setupProfile(): { success: boolean; error?: string } {
     if (IS_WIN) {
       try {
@@ -377,8 +383,9 @@ export class JdkManager {
 
         if (fs.existsSync(profilePath)) {
           const existing = fs.readFileSync(profilePath, 'utf8')
-          if (existing.includes('.jdkvm\\current')) return { success: true }
-          fs.appendFileSync(profilePath, block, 'utf8')
+          if (!existing.includes('.jdkvm\\current')) {
+            fs.appendFileSync(profilePath, block, 'utf8')
+          }
         } else {
           fs.writeFileSync(profilePath, block, 'utf8')
         }
@@ -393,6 +400,9 @@ export class JdkManager {
             { shell: 'cmd.exe' },
           )
         }
+
+        // CMD does not read $PROFILE — wire HKCU AutoRun instead.
+        ensureWinCmdHook('jdkvm')
 
         return { success: true }
       } catch (e: unknown) {

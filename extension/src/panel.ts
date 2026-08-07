@@ -1,5 +1,6 @@
 import * as vscode from 'vscode'
-import { nodeManager, jdkManager, portManager } from './managers'
+import { nodeManager, jdkManager, portManager, NODE, JDK, ToolMeta } from './managers'
+import { listWithEffective, resolveTool, setManualPin, versionAtPath } from './pinStore'
 
 /** Fired after any action that can change which version is active. */
 export type OnChanged = () => void
@@ -113,10 +114,13 @@ export class NvmPanel {
    */
   private readonly handlers: Record<string, (...args: any[]) => any> = {
     // ── Node ──
-    'nvm:list-installed': () => nodeManager.listInstalled(),
+    // `isCurrent` / `current` report the version this *workspace* resolves to,
+    // not the global junction, so the shared React UI shows the same thing as
+    // the tree view and the status bar without knowing pins exist.
+    'nvm:list-installed': () => listWithEffective(NODE),
     'nvm:list-remote': () => nodeManager.listRemote(),
-    'nvm:current': () => nodeManager.getCurrent(),
-    'nvm:use': (target: string) => this.afterChange(nodeManager.use(target)),
+    'nvm:current': () => resolveTool(NODE).version,
+    'nvm:use': (target: string) => this.pin(NODE, target),
     'nvm:install': (version: string) =>
       this.withProgress(`Installing Node ${version}`, (report) =>
         nodeManager.install(version, (progress) => {
@@ -140,17 +144,19 @@ export class NvmPanel {
     'nvm:check-path': () => nodeManager.isPathConfigured(),
     'nvm:setup-profile': () =>
       this.confirmEnvChange(
-        'Add Node to your shell profile?',
-        'This appends a PATH export to ~/.zshrc so the active Node version is used by every new shell — not just VS Code.',
+        'Configure shell startup for Node?',
+        process.platform === 'win32'
+          ? 'This updates your PowerShell profile and CMD AutoRun so the active Node version is prepended to PATH in every new terminal — not just VS Code.'
+          : 'This appends a PATH export to ~/.zshrc so the active Node version is used by every new shell — not just VS Code.',
         () => nodeManager.setupProfile(),
       ),
     'nvm:check-profile': () => nodeManager.isProfileConfigured(),
 
     // ── JDK ──
-    'jvm:list-installed': () => jdkManager.listInstalled(),
+    'jvm:list-installed': () => listWithEffective(JDK),
     'jvm:list-remote': () => jdkManager.listRemote(),
-    'jvm:current': () => jdkManager.getCurrent(),
-    'jvm:use': (target: string) => this.afterChange(jdkManager.use(target)),
+    'jvm:current': () => resolveTool(JDK).version,
+    'jvm:use': (target: string) => this.pin(JDK, target),
     'jvm:install': (version: string) =>
       this.withProgress(`Installing JDK ${version}`, (report) =>
         jdkManager.install(version, (progress) => {
@@ -174,8 +180,10 @@ export class NvmPanel {
     'jvm:check-env': () => jdkManager.isEnvConfigured(),
     'jvm:setup-profile': () =>
       this.confirmEnvChange(
-        'Add JAVA_HOME to your shell profile?',
-        'This appends JAVA_HOME and PATH exports to ~/.zshrc so the active JDK is used by every new shell — not just VS Code.',
+        'Configure shell startup for JDK?',
+        process.platform === 'win32'
+          ? 'This updates your PowerShell profile and CMD AutoRun so JAVA_HOME and the active JDK bin are set in every new terminal — not just VS Code.'
+          : 'This appends JAVA_HOME and PATH exports to ~/.zshrc so the active JDK is used by every new shell — not just VS Code.',
         () => jdkManager.setupProfile(),
       ),
     'jvm:check-profile': () => jdkManager.isProfileConfigured(),
@@ -196,6 +204,20 @@ export class NvmPanel {
   }
 
   // ── Helpers ────────────────────────────────────────────────
+
+  /**
+   * "Use this version" in the webview pins to the workspace rather than
+   * repointing the shared junction. The panel is the desktop app's UI embedded
+   * in the editor, but inside VS Code it has to obey VS Code's scoping —
+   * otherwise switching here would still change every other open window.
+   */
+  private async pin(tool: ToolMeta, target: string): Promise<{ success: boolean; error?: string }> {
+    const version = versionAtPath(tool, target)
+    if (!version) return { success: false, error: `No ${tool.noun} install found at ${target}.` }
+    await setManualPin(tool.key, version)
+    this.onChanged()
+    return { success: true }
+  }
 
   /** Refresh the status bar / terminal env after a result that may have switched versions. */
   private afterChange<T extends { success: boolean }>(result: T): T {

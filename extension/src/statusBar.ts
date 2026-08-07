@@ -1,5 +1,6 @@
 import * as vscode from 'vscode'
-import { nodeManager, jdkManager } from './managers'
+import { NODE, JDK } from './managers'
+import { describeSource, resolveTool, Resolved } from './pinStore'
 
 let item: vscode.StatusBarItem | undefined
 
@@ -18,30 +19,59 @@ export function refreshStatusBar() {
     return
   }
 
-  const node = nodeManager.getCurrent()
-  const jdk = jdkManager.getCurrent()
+  const node = resolveTool(NODE)
+  const jdk = resolveTool(JDK)
+  const both = [node, jdk]
 
-  if (!node && !jdk) {
+  const broken = both.filter((r) => r.unresolved)
+  const pinned = both.some((r) => r.source === 'workspace' || r.source === 'file')
+
+  const parts = both.filter((r) => r.version).map((r) => label(r))
+
+  // A pin naming a version that is not installed is the one state worth
+  // colouring — the terminal silently has no managed version on PATH.
+  item.backgroundColor = broken.length
+    ? new vscode.ThemeColor('statusBarItem.warningBackground')
+    : undefined
+
+  if (broken.length) {
+    item.text = `$(warning) ${broken.map((r) => `${r.tool.noun} ${r.unresolved}?`).join(' · ')}`
+  } else if (parts.length === 0) {
     item.text = '$(versions) No version active'
-    item.tooltip = 'Node & JDK Version Manager — click to open'
-    item.show()
-    return
+  } else {
+    item.text = `$(${pinned ? 'pin' : 'versions'}) ${parts.join(' · ')}`
   }
 
-  const parts: string[] = []
-  if (node) parts.push(node)
-  if (jdk) parts.push(shortJdk(jdk))
+  item.tooltip = tooltip(node, jdk)
+  item.show()
+}
 
-  item.text = `$(versions) ${parts.join(' · ')}`
-  item.tooltip = new vscode.MarkdownString(
+function label(r: Resolved): string {
+  const version = r.version ?? ''
+  return r.tool.key === 'java' ? shortJdk(version) : version
+}
+
+function tooltip(node: Resolved, jdk: Resolved): vscode.MarkdownString {
+  const md = new vscode.MarkdownString(
     [
-      `**Node:** ${node ?? '_none_'}`,
-      `**JDK:** ${jdk ?? '_none_'}`,
+      line(node),
+      line(jdk),
       '',
-      '_Click to open the Node & JDK Version Manager panel._',
+      `[Pin Node…](command:nodeversions.switchNode) · [Pin JDK…](command:nodeversions.switchJdk)`,
+      `[Use global defaults](command:nodeversions.unpinWorkspace) · [Open panel](command:nodeversions.openPanel)`,
+      '',
+      '_A pin only affects this window. Open a new terminal to pick it up._',
     ].join('\n\n'),
   )
-  item.show()
+  // Required for the `command:` links above to be clickable.
+  md.isTrusted = true
+  return md
+}
+
+function line(r: Resolved): string {
+  if (r.unresolved) return `**${r.tool.noun}:** \`${r.unresolved}\` — _requested but not installed_`
+  if (!r.version) return `**${r.tool.noun}:** _none_`
+  return `**${r.tool.noun}:** ${r.version} — _${describeSource(r)}_`
 }
 
 /**
@@ -49,7 +79,7 @@ export function refreshStatusBar() {
  * Legacy names are `1.8.0_392`, where the major version is the *second* number.
  */
 function shortJdk(version: string): string {
-  const legacy = version.match(/^1\.(\d+)/)
+  const legacy = version.match(/^(?:jdk-?)?1\.(\d+)/i)
   if (legacy) return `JDK ${legacy[1]}`
   const major = version.match(/(\d+)/)
   return major ? `JDK ${major[1]}` : version

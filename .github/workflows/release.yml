@@ -1,13 +1,14 @@
 name: Release
 
-# Đẩy 1 tag dạng v1.1.0 -> CI build installer (Windows + macOS) rồi tạo GitHub Release.
+# Đẩy 1 tag dạng v1.1.0 -> CI build installer (Windows + macOS) rồi tạo GitHub Release,
+# đồng thời đóng gói VSIX, đính kèm Release và publish lên VS Code Marketplace.
 on:
   push:
     tags:
       - 'v*'
 
 permissions:
-  contents: write   # cần để electron-builder tạo Release + upload asset
+  contents: write   # electron-builder + gh release upload
 
 jobs:
   release:
@@ -39,3 +40,68 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'   # build không ký số (cả win lẫn mac)
         run: npx electron-builder ${{ matrix.platform }} --publish always
+
+  extension:
+    # Chờ job Electron xong (kể cả khi 1 OS fail) để Release đã được tạo trước khi attach VSIX.
+    needs: release
+    if: ${{ always() && !cancelled() }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # extension/build.js chạy vite/esbuild từ repo root (shared node_modules).
+      - name: Install root dependencies
+        working-directory: .
+        run: npm ci
+
+      - name: Install extension dependencies
+        run: npm ci
+
+      - name: Sync extension version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+
+      - name: Typecheck
+        run: |
+          npm run typecheck
+          npm run typecheck:webview
+
+      - name: Package VSIX
+        run: npm run package
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nodeversions-vsix
+          path: extension/*.vsix
+          if-no-files-found: error
+
+      - name: Attach VSIX to GitHub Release
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ github.ref_name }}"
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            echo "::error::GitHub Release $TAG not found. Electron release may have failed before creating it."
+            exit 1
+          fi
+          gh release upload "$TAG" extension/*.vsix --clobber
+
+      - name: Publish to VS Code Marketplace
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          if [ -z "$VSCE_PAT" ]; then
+            echo "::error::Missing secret VSCE_PAT. Add a Marketplace Manage PAT at Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          npx vsce publish --no-dependencies --packagePath "$(ls *.vsix)"
