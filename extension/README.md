@@ -18,6 +18,16 @@ window is untouched.
 `NodeVersions: Pin JDK Version to Workspace`, or click a version in the
 **Versions** view.
 
+### nvm installs are listed too
+
+Node versions installed by **nvm** appear in the list alongside this app's own,
+badged `nvm`, and can be pinned like any other. The nvm root is found through
+`NVM_HOME` / the `root:` line of `settings.txt` on Windows, or `$NVM_DIR`
+(default `~/.nvm`) elsewhere.
+
+Strictly read-only: nothing is ever installed into or deleted from an nvm root,
+and Uninstall stays disabled for those rows. fnm, Volta and asdf are not read.
+
 A pin resolves in this order:
 
 1. what you picked in this window (stored in VS Code's workspace state)
@@ -45,6 +55,11 @@ to change it; the extension confirms first, because it reaches outside this
 window.
 
 Workspaces with their own pin ignore the global default entirely.
+
+Setting an **nvm** version as the global default points `~/.nodevm/current` at a
+directory nvm also manages. It works, but two managers then claim one tree — a
+later `nvm uninstall` leaves that link dangling. Pinning to a workspace does not
+have this problem.
 
 ### New terminals get the version you picked
 

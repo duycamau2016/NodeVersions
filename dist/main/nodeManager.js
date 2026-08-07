@@ -15,6 +15,16 @@ const execAsync = (0, util_1.promisify)(child_process_1.exec);
 const IS_WIN = process.platform === 'win32';
 /** Shell profile edited on macOS/Linux to persist PATH (zsh is the macOS default). */
 const PROFILE_FILE = path_1.default.join(os_1.default.homedir(), '.zshrc');
+/** Newest release first. Shared by every listing so orderings never disagree. */
+function byNodeVersionDesc(a, b) {
+    const pa = a.version.replace('v', '').split('.').map(Number);
+    const pb = b.version.replace('v', '').split('.').map(Number);
+    for (let i = 0; i < 3; i++) {
+        if ((pa[i] || 0) !== (pb[i] || 0))
+            return (pb[i] || 0) - (pa[i] || 0);
+    }
+    return 0;
+}
 class NodeManager {
     constructor() {
         this.versionsDir = path_1.default.join(os_1.default.homedir(), '.nodevm', 'versions');
@@ -30,15 +40,7 @@ class NodeManager {
     }
     listInstalled() {
         const currentPath = this.getCurrentPath();
-        const byVersionDesc = (a, b) => {
-            const pa = a.version.replace('v', '').split('.').map(Number);
-            const pb = b.version.replace('v', '').split('.').map(Number);
-            for (let i = 0; i < 3; i++) {
-                if ((pa[i] || 0) !== (pb[i] || 0))
-                    return (pb[i] || 0) - (pa[i] || 0);
-            }
-            return 0;
-        };
+        const byVersionDesc = byNodeVersionDesc;
         const managed = (fs_1.default.existsSync(this.versionsDir) ? fs_1.default.readdirSync(this.versionsDir) : [])
             .filter((d) => {
             if (!d.startsWith('v'))
@@ -65,6 +67,13 @@ class NodeManager {
     /** Find Node installs already on the machine (read-only) */
     _discoverExternal(managedPaths) {
         const found = new Map();
+        /** Record an install whose version is already known — no subprocess needed. */
+        const addKnown = (v) => {
+            const key = this._canon(v.path);
+            if (found.has(key) || managedPaths.has(key))
+                return;
+            found.set(key, v);
+        };
         const add = (dir) => {
             if (!dir)
                 return;
@@ -87,12 +96,17 @@ class NodeManager {
                 }
                 if (!version)
                     version = path_1.default.basename(norm);
-                found.set(key, { version, isCurrent: false, path: norm, external: true });
+                found.set(key, { version, isCurrent: false, path: norm, external: true, origin: 'system' });
             }
             catch {
                 // ignore unreadable candidate
             }
         };
+        // nvm first: its version directories are named after the version, so they
+        // cost no subprocess, and claiming the dedupe key here means the copy nvm
+        // has selected is labelled `nvm` rather than `system` when the PATH sweep
+        // below runs into the same directory.
+        this.listNvm().forEach(addKnown);
         if (IS_WIN) {
             const pf = process.env['ProgramFiles'] || 'C:\\Program Files';
             const pfx86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
@@ -137,6 +151,137 @@ class NodeManager {
             }
         }
         return Array.from(found.values());
+    }
+    // ── nvm ─────────────────────────────────────────────────────
+    //
+    // Read-only. This app never installs into or deletes from an nvm root; it
+    // only lists what is there so a version can be selected or pinned.
+    //
+    // Windows (nvm-windows): versions live at `<root>\v20.11.0\node.exe`, and the
+    //   root comes from NVM_HOME, or the `root:` line of settings.txt beside
+    //   nvm.exe, or %APPDATA%\nvm.
+    // macOS/Linux (nvm-sh): `$NVM_DIR/versions/node/v20.11.0/bin/node`, NVM_DIR
+    //   defaulting to ~/.nvm. The pre-0.30 flat layout is not supported — those
+    //   are Node 0.x releases.
+    /** Directory holding nvm's version folders, or null when nvm is not installed. */
+    _nvmVersionsDir() {
+        if (!IS_WIN) {
+            const root = process.env['NVM_DIR'] || path_1.default.join(os_1.default.homedir(), '.nvm');
+            const dir = path_1.default.join(root, 'versions', 'node');
+            return fs_1.default.existsSync(dir) ? dir : null;
+        }
+        const appData = process.env['APPDATA'];
+        for (const home of [process.env['NVM_HOME'], appData ? path_1.default.join(appData, 'nvm') : undefined]) {
+            if (!home || !fs_1.default.existsSync(home))
+                continue;
+            // settings.txt is authoritative: nvm.exe and the versions can live apart.
+            const root = this._nvmSetting(home, 'root') ?? home;
+            if (fs_1.default.existsSync(root))
+                return root;
+        }
+        return null;
+    }
+    /** Read one `key: value` line out of an nvm-windows settings.txt. */
+    _nvmSetting(home, key) {
+        try {
+            const raw = fs_1.default.readFileSync(path_1.default.join(home, 'settings.txt'), 'utf8');
+            for (const line of raw.split(/\r?\n/)) {
+                const match = line.match(new RegExp(`^\\s*${key}\\s*:\\s*(.+?)\\s*$`, 'i'));
+                if (match)
+                    return match[1];
+            }
+        }
+        catch {
+            // no settings.txt, or unreadable
+        }
+        return null;
+    }
+    /**
+     * The version nvm itself currently has selected, or null.
+     *
+     * Only labels a row — it never changes behaviour. NVM_SYMLINK naming a path
+     * does not mean nvm owns it: on a machine with a plain Node MSI install the
+     * variable can point at a real directory, which must not be reported as
+     * nvm-managed. Hence the symlink check before resolving.
+     */
+    _nvmActivePath() {
+        if (!IS_WIN)
+            return null;
+        const appData = process.env['APPDATA'];
+        const homes = [process.env['NVM_HOME'], appData ? path_1.default.join(appData, 'nvm') : undefined];
+        const link = process.env['NVM_SYMLINK'] ??
+            homes.reduce((acc, home) => acc ?? (home ? this._nvmSetting(home, 'path') : null), null);
+        if (!link)
+            return null;
+        try {
+            if (!fs_1.default.lstatSync(link).isSymbolicLink())
+                return null;
+            return this._canon(fs_1.default.realpathSync(link));
+        }
+        catch {
+            return null;
+        }
+    }
+    /** Node versions installed by nvm, newest first. Costs no subprocess. */
+    listNvm() {
+        const dir = this._nvmVersionsDir();
+        if (!dir)
+            return [];
+        const active = this._nvmActivePath();
+        let entries;
+        try {
+            entries = fs_1.default.readdirSync(dir);
+        }
+        catch {
+            return [];
+        }
+        return entries
+            // Only `vX…` directories. nvm-sh keeps io.js under its own versions/io.js
+            // tree, and an `iojs-v3.3.1` name would sort as NaN through the version
+            // comparator.
+            .filter((name) => /^v\d/.test(name))
+            .map((version) => ({ version, path: path_1.default.join(dir, version) }))
+            // An empty or half-removed version directory is common in an nvm root;
+            // _hasNode is what keeps it out of the list.
+            .filter((v) => this._hasNode(v.path))
+            .map((v) => ({
+            version: v.version,
+            isCurrent: false,
+            path: v.path,
+            external: true,
+            origin: 'nvm',
+            originActive: active !== null && this._real(v.path) === active,
+        }))
+            .sort(byNodeVersionDesc);
+    }
+    /**
+     * Everything discoverable without spawning a process: this app's own tree plus
+     * nvm's. Callers that resolve a version on a hot path (pin resolution at
+     * window activation) use this and fall back to listInstalled() only when it
+     * misses, because listInstalled() shells out to `where node` / `which -a node`
+     * and runs `node --version` per candidate.
+     */
+    listLocal() {
+        const currentPath = this.getCurrentPath();
+        const managed = (fs_1.default.existsSync(this.versionsDir) ? fs_1.default.readdirSync(this.versionsDir) : [])
+            .filter((d) => {
+            if (!d.startsWith('v'))
+                return false;
+            const dir = path_1.default.join(this.versionsDir, d);
+            try {
+                return fs_1.default.statSync(dir).isDirectory() && this._hasNode(dir);
+            }
+            catch {
+                return false;
+            }
+        })
+            .map((version) => {
+            const dir = path_1.default.join(this.versionsDir, version);
+            return { version, isCurrent: this._isActive(dir, currentPath), path: dir, external: false };
+        })
+            .sort(byNodeVersionDesc);
+        const managedPaths = new Set(managed.map((m) => this._canon(m.path)));
+        return [...managed, ...this.listNvm().filter((v) => !managedPaths.has(this._canon(v.path)))];
     }
     getCurrent() {
         try {

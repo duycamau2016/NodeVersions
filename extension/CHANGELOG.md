@@ -1,5 +1,32 @@
 # Changelog
 
+## 1.3.0 — unreleased
+
+### Added
+
+- **nvm installs are listed.** Node versions under an nvm root show up in the
+  Versions view, the panel and the pin picker, badged `nvm`, and can be pinned
+  to a workspace. The root is resolved from `NVM_HOME` or the `root:` line of
+  `settings.txt` on Windows, and `$NVM_DIR` (default `~/.nvm`) elsewhere.
+  Strictly read-only — nothing is installed into or removed from an nvm root,
+  and Uninstall stays disabled for those rows. Enumeration reads directory
+  names, so it costs no subprocess. fnm, Volta and asdf are not read.
+- The row nvm itself currently has selected is marked `nvm current`. The
+  `NVM_SYMLINK` target is confirmed to be a real symlink first, so a plain Node
+  MSI install at the same path is not mislabelled as nvm-managed.
+
+### Changed
+
+- Workspace pins now record the install directory alongside the version. The
+  same version string can name both a managed install and an nvm one, and
+  resolving by version alone would hand back the managed copy even when the nvm
+  row was the one clicked. Pins written before this stay valid — a bare version
+  string still resolves, and a recorded path that has since disappeared falls
+  back to matching by version.
+- Pin resolution reads the new `listLocal()` (managed tree plus nvm roots,
+  `readdirSync` only) before falling back to the full `listInstalled()`, so
+  pinning an nvm version does not put `where node` back on the activation path.
+
 ## 1.1.0 — unreleased
 
 ### Added

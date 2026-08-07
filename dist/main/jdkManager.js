@@ -71,6 +71,38 @@ class JdkManager {
             .sort(byVersionDesc);
         return [...managed, ...external];
     }
+    /**
+     * Everything discoverable without spawning a process. Mirrors
+     * NodeManager.listLocal() so pin resolution can treat both tools alike; there
+     * is no JDK equivalent of an nvm root to scan, so this is the managed tree
+     * only, and _discoverExternal() (which shells out) stays the fallback.
+     */
+    listLocal() {
+        const currentPath = this.getCurrentPath();
+        return (fs_1.default.existsSync(this.versionsDir) ? fs_1.default.readdirSync(this.versionsDir) : [])
+            .filter((d) => {
+            const dir = path_1.default.join(this.versionsDir, d);
+            try {
+                return fs_1.default.statSync(dir).isDirectory() && this._hasJava(dir);
+            }
+            catch {
+                return false;
+            }
+        })
+            .map((version) => {
+            const dir = path_1.default.join(this.versionsDir, version);
+            return { version, isCurrent: this._isActive(dir, currentPath), path: dir, external: false };
+        })
+            .sort((a, b) => {
+            const pa = this._parseVersion(a.version);
+            const pb = this._parseVersion(b.version);
+            for (let i = 0; i < 3; i++) {
+                if ((pa[i] || 0) !== (pb[i] || 0))
+                    return (pb[i] || 0) - (pa[i] || 0);
+            }
+            return 0;
+        });
+    }
     getCurrent() {
         try {
             return path_1.default.basename(fs_1.default.realpathSync(this.symlinkPath));
@@ -388,6 +420,7 @@ class JdkManager {
                     isCurrent: false,
                     path: norm,
                     external: true,
+                    origin: 'system',
                 });
             }
             catch {

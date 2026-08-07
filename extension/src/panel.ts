@@ -214,7 +214,7 @@ export class NvmPanel {
   private async pin(tool: ToolMeta, target: string): Promise<{ success: boolean; error?: string }> {
     const version = versionAtPath(tool, target)
     if (!version) return { success: false, error: `No ${tool.noun} install found at ${target}.` }
-    await setManualPin(tool.key, version)
+    await setManualPin(tool.key, { version, path: target })
     this.onChanged()
     return { success: true }
   }

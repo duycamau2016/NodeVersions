@@ -19,6 +19,10 @@ type VersionNode =
       /** The version the shared ~/.nodevm/current junction points at. */
       isGlobal: boolean
       external: boolean
+      /** Which other tool installed it, when it is not ours. */
+      origin?: 'nvm' | 'system'
+      /** True when nvm itself currently has this version selected. */
+      originActive?: boolean
     }
 
 export class VersionsProvider implements vscode.TreeDataProvider<VersionNode> {
@@ -50,6 +54,8 @@ export class VersionsProvider implements vscode.TreeDataProvider<VersionNode> {
       isCurrent: v.isCurrent,
       isGlobal: v.isGlobal,
       external: v.external === true,
+      origin: v.origin,
+      originActive: v.originActive,
     }))
   }
 
@@ -94,7 +100,8 @@ export class VersionsProvider implements vscode.TreeDataProvider<VersionNode> {
     item.description = [
       pinnedHere ? (resolved.source === 'file' ? resolved.file : 'pinned') : undefined,
       node.isGlobal ? 'global' : undefined,
-      node.external ? 'system' : undefined,
+      // "nvm current" already says it is an nvm install — don't print both.
+      node.external ? (node.originActive ? 'nvm current' : node.origin ?? 'system') : undefined,
     ]
       .filter(Boolean)
       .join(' · ')
@@ -105,7 +112,11 @@ export class VersionsProvider implements vscode.TreeDataProvider<VersionNode> {
         node.path,
         pinnedHere ? `_Pinned for this workspace (${describeSource(resolved)})._` : '',
         node.isGlobal ? '_Also the machine-wide default._' : '',
-        node.external ? '_Installed outside this extension._' : '',
+        node.origin === 'nvm'
+          ? `_Installed by nvm${node.originActive ? ', and the version nvm has selected' : ''}. This extension lists it but never modifies it._`
+          : node.external
+            ? '_Installed outside this extension._'
+            : '',
       ]
         .filter(Boolean)
         .join('\n\n'),
@@ -397,7 +408,9 @@ export function registerTreeViews(context: vscode.ExtensionContext, onChanged: (
   // shared junction, so a second window on another repo is unaffected.
   registerCommand(context, 'nodeversions.pinVersion', async (node: VersionNode) => {
     if (!node || node.kind !== 'version') return
-    await setManualPin(node.tool.key, node.version)
+    // Record the path, not just the version: the same version string can name
+    // both a managed install and an nvm one.
+    await setManualPin(node.tool.key, { version: node.version, path: node.path })
     onChanged()
     vscode.window.showInformationMessage(
       `${node.tool.noun} ${node.version} pinned to this workspace. Open a new terminal to pick it up.`,

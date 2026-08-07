@@ -61,7 +61,7 @@ export function resolveAll(): Resolved[] {
 
 function compute(tool: ToolMeta): Resolved {
   const manual = getManualPin(tool.key)
-  if (manual) return fromRequest(tool, manual, 'workspace')
+  if (manual) return fromPin(tool, manual)
 
   const declared = readVersionFile(tool)
   if (declared) return { ...fromRequest(tool, declared.request, 'file'), file: declared.file }
@@ -72,6 +72,22 @@ function compute(tool: ToolMeta): Resolved {
   return dir
     ? { tool, version: path.basename(dir), dir, source: 'global' }
     : { tool, version: null, dir: null, source: 'none' }
+}
+
+/**
+ * The recorded path wins over the version string. Once nvm's installs are
+ * listed alongside ours, `v20.11.0` can name a directory in `~/.nodevm` *and*
+ * one in the nvm root — resolving by version alone would quietly hand back the
+ * managed copy even when the user clicked the nvm row.
+ *
+ * Falling back to the version keeps pins working when an install is moved or
+ * reinstalled elsewhere, and covers pins written before paths were recorded.
+ */
+function fromPin(tool: ToolMeta, pin: Pin): Resolved {
+  if (pin.path && hasBinary(tool, pin.path)) {
+    return { tool, version: pin.version, dir: pin.path, source: 'workspace' }
+  }
+  return fromRequest(tool, pin.version, 'workspace')
 }
 
 function fromRequest(tool: ToolMeta, request: string, source: PinSource): Resolved {
@@ -86,13 +102,26 @@ function fromRequest(tool: ToolMeta, request: string, source: PinSource): Resolv
 
 // ── Manual pins ───────────────────────────────────────────────
 
-export function getManualPin(tool: Tool): string | null {
-  return ctx?.workspaceState.get<string>(pinKey(tool)) ?? null
+export interface Pin {
+  version: string
+  /**
+   * Absolute install directory. Disambiguates a version string that exists in
+   * more than one place — ours and nvm's. Absent on pins written before this
+   * was recorded, and on anything derived from a version file.
+   */
+  path?: string
 }
 
-export async function setManualPin(tool: Tool, version: string | null): Promise<void> {
+export function getManualPin(tool: Tool): Pin | null {
+  const raw = ctx?.workspaceState.get<string | Pin>(pinKey(tool))
+  if (!raw) return null
+  // Pins used to be a bare version string; keep reading those.
+  return typeof raw === 'string' ? { version: raw } : raw
+}
+
+export async function setManualPin(tool: Tool, pin: Pin | null): Promise<void> {
   // `undefined` is how workspaceState deletes a key; `null` would be stored.
-  await ctx?.workspaceState.update(pinKey(tool), version ?? undefined)
+  await ctx?.workspaceState.update(pinKey(tool), pin ?? undefined)
   invalidatePins()
 }
 
@@ -150,11 +179,11 @@ function matchInstalled(tool: ToolMeta, request: string): Installed | null {
   const direct = path.join(tool.vm.versionsDir, request)
   if (hasBinary(tool, direct)) return { version: request, path: direct }
 
-  // Then a plain directory scan, which covers every managed install. Only a
-  // loose request that matches nothing managed (say `.nvmrc` naming a system
-  // Node) is worth listInstalled(), which shells out to `where node` /
-  // `which -a node` — too slow to sit on the activation path by default.
-  return pick(listManaged(tool), request) ?? pick(listExternal(tool), request)
+  // Then the subprocess-free listing — our own tree plus any nvm root. Only a
+  // request that matches nothing there is worth listInstalled(), which shells
+  // out to `where node` / `which -a node` and runs `node --version` per
+  // candidate — too slow to sit on the activation path by default.
+  return pick(listLocal(tool), request) ?? pick(listExternal(tool), request)
 }
 
 function pick(installed: Installed[], request: string): Installed | null {
@@ -183,21 +212,16 @@ function pick(installed: Installed[], request: string): Installed | null {
   return null
 }
 
-/** Installs this extension manages, newest first — no subprocesses. */
-function listManaged(tool: ToolMeta): Installed[] {
-  let entries: string[]
+/** Managed installs plus nvm's, newest first — no subprocesses. */
+function listLocal(tool: ToolMeta): Installed[] {
   try {
-    entries = fs.readdirSync(tool.vm.versionsDir)
+    return tool.vm.listLocal()
   } catch {
     return []
   }
-  return entries
-    .map((version) => ({ version, path: path.join(tool.vm.versionsDir, version) }))
-    .filter((v) => hasBinary(tool, v.path))
-    .sort((a, b) => compareDesc(a.version, b.version))
 }
 
-/** The expensive half: Node/JDK installs already on the machine. */
+/** The expensive half: installs found only by walking PATH. */
 function listExternal(tool: ToolMeta): Installed[] {
   try {
     return tool.vm.listInstalled().filter((v) => v.external)
@@ -224,15 +248,6 @@ function numericParts(version: string): number[] {
 
 function majorOf(version: string): number {
   return numericParts(version)[0]
-}
-
-function compareDesc(a: string, b: string): number {
-  const pa = numericParts(normalize(a))
-  const pb = numericParts(normalize(b))
-  for (let i = 0; i < 3; i++) {
-    if ((pa[i] || 0) !== (pb[i] || 0)) return (pb[i] || 0) - (pa[i] || 0)
-  }
-  return 0
 }
 
 // ── Paths ─────────────────────────────────────────────────────

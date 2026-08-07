@@ -5,6 +5,10 @@ export interface InstalledVersion {
   path: string
   /** true for installs already on the machine (not managed by this app) — read-only */
   external?: boolean
+  /** Where an external install came from. Absent for installs this app manages. */
+  origin?: 'nvm' | 'system'
+  /** True when the owning tool (nvm) currently has this version selected. */
+  originActive?: boolean
 }
 
 export interface RemoteVersion {

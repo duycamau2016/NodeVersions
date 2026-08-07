@@ -73,8 +73,20 @@ export function InstalledTab({ api, noun, refreshKey, onRefresh, addToast }: Pro
             <div className="version-name">{v.version}</div>
             {v.isCurrent && <div className="version-badge">● active</div>}
             {v.external && (
-              <div className="version-badge system" title="Detected on this machine — won't be removed by this app">
-                system
+              <div
+                className="version-badge system"
+                title={
+                  v.origin === 'nvm'
+                    ? "Installed by nvm — listed here, but never modified by this app"
+                    : "Detected on this machine — won't be removed by this app"
+                }
+              >
+                {v.origin === 'nvm' ? 'nvm' : 'system'}
+              </div>
+            )}
+            {v.originActive && (
+              <div className="version-badge system" title="The version nvm itself currently has selected">
+                nvm current
               </div>
             )}
             {v.external && <div className="version-meta">{v.path}</div>}

@@ -75,7 +75,7 @@ export async function pickVersion(tool: ToolMeta, mode: Mode, onChanged: () => v
   }
 
   if (mode === 'pin') {
-    await setManualPin(tool.key, choice.version!)
+    await setManualPin(tool.key, { version: choice.version!, path: choice.target! })
     onChanged()
     vscode.window.showInformationMessage(
       `${tool.noun} ${choice.version} pinned to this workspace. Open a new terminal to pick it up.`,
