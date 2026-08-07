@@ -1,7 +1,7 @@
 <div align="center">
   <img src="https://raw.githubusercontent.com/duycamau2016/NodeVersions/main/assets/logo.png" alt="Node & JDK Version Manager logo" width="128" />
   <h1>Node &amp; JDK Version Manager</h1>
-  <p>Install, switch and manage Node.js and JDK versions without leaving VS Code.</p>
+  <p>Switch Node.js and JDK versions per VS Code workspace</p>
 </div>
 
 ---
